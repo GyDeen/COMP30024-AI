@@ -1,0 +1,13 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+
+# Docker
+.dockerignore
+
+# Virtual environments (if you use them)
+venv/
+.venv/
+
+# OS specific files
+.DS_Store
