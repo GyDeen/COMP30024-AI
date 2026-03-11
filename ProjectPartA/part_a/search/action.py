@@ -1,12 +1,66 @@
 from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction
 from .utils import render_board
 
-def move():
-    pass
+def move(board: dict[Coord, CellState], move_action: MoveAction, actions: list[Action]):
+    # Create a new board state to apply the move effect without modifying the original board until all changes are determined
+    new_board = board.copy()
+    if move_action.coord not in new_board:
+        return new_board
+    
+    curr_stack = new_board[move_action.coord]
+
+    #check if the move is valid
+    try:
+        target_coord = move_action.coord + move_action.direction
+    except ValueError:
+        return new_board
+    
+    if target_coord not in new_board:
+        new_board[target_coord] = curr_stack
+        del new_board[move_action.coord]
+    else: 
+        #a stack already exists
+        target_stack = new_board[target_coord]
+        
+        #if target stack is friendly
+        if target_stack.color == curr_stack.color:
+            new_height = target_stack.height + curr_stack.height
+            new_board[target_coord] = CellState(curr_stack.color, new_height)
+            del new_board[move_action.coord]
+
+    return new_board
 
 
-def eat():
-    pass
+def eat(board: dict[Coord, CellState], eat_action: EatAction, actions: list[Action]):
+    # Create a new board state to apply the eat effect without modifying the original board until all changes are determined
+    new_board = board.copy()
+
+    attacker_coord = eat_action.coord
+
+    #check if attacker position is valid
+    if attacker_coord not in new_board:
+        return new_board
+    
+    attacker = new_board[attacker_coord]
+
+    try:
+        target_coord = attacker_coord + eat_action.direction
+    except ValueError:
+        return new_board
+    
+    if target_coord not in new_board:
+        return new_board
+    else:
+        target = new_board[target_coord]
+
+    #check if target stack is enemy and attacker is taller than target stack
+    if target.color == attacker.color or attacker.height < target.height:
+        return new_board
+    
+    del new_board[target_coord]
+    new_board[target_coord] = CellState(attacker.color, attacker.height)
+    del new_board[attacker_coord]
+    return new_board
 
 def cascade(board: dict[Coord, CellState], move_action: MoveAction, actions: list[Action]):
     """
