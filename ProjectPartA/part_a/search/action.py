@@ -1,9 +1,6 @@
 from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction
 from .utils import render_board
 
-def action():
-    pass
-
 def move():
     pass
 
@@ -35,18 +32,20 @@ def cascade(board: dict[Coord, CellState], move_action: MoveAction, actions: lis
     if move_action.coord not in new_board or new_board[move_action.coord].height < 2:
         return new_board
 
-    stack = new_board[action.coord]
+    stack = new_board[move_action.coord]
     height = stack.height
     color = stack.color
-    
-    
-    for target_coord in get_cascade_path(action.coord, action.direction, height):
+
+
+    for target_coord in get_cascade_path(move_action.coord, move_action.direction, height):
         # If the target coordinate is in the board and has a stack, we need to push it before placing the new token
         if target_coord in new_board:
-            new_board = push_stack_recursion(new_board, target_coord, action.direction)
-            
+            new_board = push_stack_recursion(new_board, target_coord, move_action.direction)
         new_board[target_coord] = CellState(color, 1)
 
+    # Remove the original stack after cascading
+    new_board.pop(move_action.coord)  
+    # print(render_board(new_board))
     return new_board
 
 
@@ -74,15 +73,20 @@ def push_stack_recursion(board: dict[Coord, CellState], start_coord: Coord, dire
         return board
 
     # Calculate the next coordinate in the cascade direction
-    next_coord = start_coord + direction
+    try:
+        next_coord = start_coord + direction
+    # We reach the bound of the board, all the stacks still need to be pushed will be eliminated
+    except ValueError:
+        return board
 
     # Recursively push the next stack
     board = push_stack_recursion(board, next_coord, direction)
 
     # Move the current stack to the next coordinate
     board[next_coord] = stack
-    del board[start_coord]  # Remove the stack from its current position
-
+    # Remove the stack from its current position
+    del board[start_coord]  
+    
     return board
     
     

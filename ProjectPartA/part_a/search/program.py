@@ -3,6 +3,7 @@
 
 from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction
 from .utils import render_board
+from .action import cascade
 
 
 def search(
