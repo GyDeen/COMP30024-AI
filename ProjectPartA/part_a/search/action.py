@@ -1,5 +1,7 @@
+import sys
 from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction
 from .utils import render_board
+
 
 def move(board: dict[Coord, CellState], move_action: MoveAction, actions: list[Action]):
     # Create a new board state to apply the move effect without modifying the original board until all changes are determined
@@ -13,8 +15,8 @@ def move(board: dict[Coord, CellState], move_action: MoveAction, actions: list[A
     try:
         target_coord = move_action.coord + move_action.direction
     except ValueError:
-        return new_board
-    
+        sys.exit("Invalid move: Move goes out of board bounds.")
+        
     if target_coord not in new_board:
         new_board[target_coord] = curr_stack
         del new_board[move_action.coord]
@@ -46,7 +48,7 @@ def eat(board: dict[Coord, CellState], eat_action: EatAction, actions: list[Acti
     try:
         target_coord = attacker_coord + eat_action.direction
     except ValueError:
-        return new_board
+        return sys.exit("Invalid eat: Eat action goes out of board bounds.")
     
     if target_coord not in new_board:
         return new_board
@@ -61,6 +63,7 @@ def eat(board: dict[Coord, CellState], eat_action: EatAction, actions: list[Acti
     new_board[target_coord] = CellState(attacker.color, attacker.height)
     del new_board[attacker_coord]
     return new_board
+
 
 def cascade(board: dict[Coord, CellState], move_action: MoveAction, actions: list[Action]):
     """
