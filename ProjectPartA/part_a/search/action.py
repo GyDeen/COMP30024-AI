@@ -45,6 +45,7 @@ def cascade(board: dict[Coord, CellState], move_action: MoveAction, actions: lis
 
     # Remove the original stack after cascading
     new_board.pop(move_action.coord)  
+    actions.append(CascadeAction(move_action.coord, move_action.direction))
     # print(render_board(new_board))
     return new_board
 
