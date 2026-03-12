@@ -65,7 +65,7 @@ def eat(board: dict[Coord, CellState], eat_action: EatAction, actions: list[Acti
     return new_board
 
 
-def cascade(board: dict[Coord, CellState], move_action: MoveAction, actions: list[Action]):
+def cascade(board: dict[Coord, CellState], move_action: CascadeAction, actions: list[Action]):
     """
     Given a board state and a move action. If the move action's coord do exist in board, and the move action's direction is valid,
     then add the action to the list and perform CASCAD action.
@@ -98,10 +98,14 @@ def cascade(board: dict[Coord, CellState], move_action: MoveAction, actions: lis
         # If the target coordinate is in the board and has a stack, we need to push it before placing the new token
         if target_coord in new_board:
             new_board = push_stack_recursion(new_board, target_coord, move_action.direction)
+            #print(render_board(new_board))
         new_board[target_coord] = CellState(color, 1)
+        # print(render_board(new_board))
 
     # Remove the original stack after cascading
+    #print(render_board(new_board))
     new_board.pop(move_action.coord)  
+    #print(render_board(new_board))
     actions.append(CascadeAction(move_action.coord, move_action.direction))
     # print(render_board(new_board))
     return new_board
@@ -135,6 +139,7 @@ def push_stack_recursion(board: dict[Coord, CellState], start_coord: Coord, dire
         next_coord = start_coord + direction
     # We reach the bound of the board, all the stacks still need to be pushed will be eliminated
     except ValueError:
+        # print(render_board(board))
         return board
 
     # Recursively push the next stack

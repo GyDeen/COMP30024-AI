@@ -27,8 +27,9 @@ def search(
     # The render_board() function is handy for debugging. It will print out a
     # board state in a human-readable format. If your terminal supports ANSI
     # codes, set the `ansi` flag to True to print a colour-coded version!
+    # print(render_board(board, ansi=True))
+    board = cascade(board, CascadeAction(Coord(5, 4), Direction.Right), [])
     print(render_board(board, ansi=True))
-
     # Do some impressive AI stuff here to find the solution...
     # ...
     # ... (your solution goes here!)
@@ -38,7 +39,7 @@ def search(
     # output format. Of course, you should instead return the result of your
     # search algorithm. Remember: if no solution is possible for a given input,
     # return `None` instead of a list.
-    return [
-        MoveAction(Coord(3, 3), Direction.Down),
-        EatAction(Coord(4, 3), Direction.Down),
-    ]
+    # return [
+    #     MoveAction(Coord(3, 3), Direction.Down),
+    #     EatAction(Coord(4, 3), Direction.Down),
+    # ]
