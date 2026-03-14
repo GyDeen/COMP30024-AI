@@ -1,9 +1,11 @@
 # COMP30024 Artificial Intelligence, Semester 1 2026
 # Project Part A: Single Player Cascade
 
-from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction
+from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction, PlayerColor
 from .utils import render_board
 from .action import cascade
+import heapq
+from .state import Node
 
 
 def search(
@@ -23,23 +25,35 @@ def search(
         A list of actions (MoveAction, EatAction, or CascadeAction), or `None`
         if no solution is possible.
     """
-
-    # The render_board() function is handy for debugging. It will print out a
-    # board state in a human-readable format. If your terminal supports ANSI
-    # codes, set the `ansi` flag to True to print a colour-coded version!
-    # print(render_board(board, ansi=True))
-    board = cascade(board, CascadeAction(Coord(5, 4), Direction.Right), [])
+    
+    start_state = tuple(sorted(board.items()))
+    start_node = Node(board=start_state, path=[], g_cost=0, h_cost=0)
+    
+    # The pq for next potential states to explore, ordered by f_cost (g_cost + h_cost)
+    priority_queue = []
+    # To break ties in the priority queue
+    entry_count = 0  
+    actions = list[Action] = []
+    # To track visited board states and avoid cycles
+    visited = set()  
+    
+    heapq.heappush(priority_queue, (start_node.f_cost, entry_count, start_node))
+    entry_count += 1
     print(render_board(board, ansi=True))
-    # Do some impressive AI stuff here to find the solution...
-    # ...
-    # ... (your solution goes here!)
-    # ...
+    
 
-    # Here we're returning "hardcoded" actions as an example of the expected
-    # output format. Of course, you should instead return the result of your
-    # search algorithm. Remember: if no solution is possible for a given input,
-    # return `None` instead of a list.
-    # return [
-    #     MoveAction(Coord(3, 3), Direction.Down),
-    #     EatAction(Coord(4, 3), Direction.Down),
-    # ]
+    
+    return actions
+
+
+def no_blue(board_state: tuple) -> bool:
+    """
+    Check if there are no blue cells left on the board.
+    """
+    for coord, cell_state in board_state:
+        if cell_state.color == PlayerColor.BLUE:
+            return False
+    return True
+
+
+
