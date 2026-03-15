@@ -3,7 +3,7 @@ from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, Ca
 from .utils import render_board
 
 
-def move(board: dict[Coord, CellState], move_action: MoveAction, actions: list[Action]):
+def move(board: dict[Coord, CellState], move_action: MoveAction):
     # Create a new board state to apply the move effect without modifying the original board until all changes are determined
     new_board = board.copy()
     if move_action.coord not in new_board:
@@ -33,7 +33,7 @@ def move(board: dict[Coord, CellState], move_action: MoveAction, actions: list[A
     return new_board
 
 
-def eat(board: dict[Coord, CellState], eat_action: EatAction, actions: list[Action]):
+def eat(board: dict[Coord, CellState], eat_action: EatAction):
     # Create a new board state to apply the eat effect without modifying the original board until all changes are determined
     new_board = board.copy()
 
@@ -65,7 +65,7 @@ def eat(board: dict[Coord, CellState], eat_action: EatAction, actions: list[Acti
     return new_board
 
 
-def cascade(board: dict[Coord, CellState], move_action: CascadeAction, actions: list[Action]):
+def cascade(board: dict[Coord, CellState], move_action: CascadeAction):
     """
     Given a board state and a move action. If the move action's coord do exist in board, and the move action's direction is valid,
     then add the action to the list and perform CASCAD action.
@@ -106,7 +106,6 @@ def cascade(board: dict[Coord, CellState], move_action: CascadeAction, actions: 
     #print(render_board(new_board))
     new_board.pop(move_action.coord)  
     #print(render_board(new_board))
-    actions.append(CascadeAction(move_action.coord, move_action.direction))
     # print(render_board(new_board))
     return new_board
 
