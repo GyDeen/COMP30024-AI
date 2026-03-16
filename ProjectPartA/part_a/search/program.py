@@ -62,32 +62,28 @@ def search(
                 for direction in Direction:
                     # Check if the move is within bounds before creating the action
                     if is_within_bounds(coord, direction):
-                        for action in [MoveAction(coord, direction), EatAction(coord, direction), CascadeAction(coord, direction)]:
-                            if isinstance(action, MoveAction):
-                                new_board = move(board_dict, action)
-                                # Already seen this board state, skip
-                                if new_board == board_dict:
-                                    continue
-                            elif isinstance(action, EatAction):
-                                new_board = eat(board_dict, action)
-                                # Already seen this board state, skip
-                                if new_board == board_dict:
-                                    continue
-                            elif isinstance(action, CascadeAction):
-                                new_board = cascade(board_dict, action)
-                                # Already seen this board state, skip
-                                if new_board == board_dict:
-                                    continue
-                            else:
-                                continue
-                            
-                            new_board_tuple = tuple(sorted(new_board.items()))
-                            if new_board_tuple not in visited:
-                                new_path = next_node.path + [action]
-                                new_g_cost = next_node.g_cost + 1
-                                new_node = Node(board=new_board_tuple, path=new_path, g_cost=new_g_cost, h_cost=0)
-                                heapq.heappush(priority_queue, (new_node.f_cost, entry_count, new_node))
-                                entry_count += 1
+                        target_coord = coord + direction
+                        if board_dict.get(target_coord) is None or board_dict[target_coord].color == PlayerColor.RED:
+                            move_action = MoveAction(coord, direction)
+                            new_board = move(board_dict, move_action)
+                            new_path = next_node.path + [move_action]
+                            new_node = Node(board=tuple(sorted(new_board.items())), path=new_path, g_cost=next_node.g_cost + 1, h_cost=0)
+                            heapq.heappush(priority_queue, (new_node.f_cost, entry_count, new_node))
+                            entry_count += 1
+                        elif board_dict.get(target_coord).color == PlayerColor.BLUE and cell_state.height > board_dict[target_coord].height:
+                            eat_action = EatAction(coord, direction)
+                            new_board = eat(board_dict, eat_action)
+                            new_path = next_node.path + [eat_action]
+                            new_node = Node(board=tuple(sorted(new_board.items())), path=new_path, g_cost=next_node.g_cost + 1, h_cost=0)
+                            heapq.heappush(priority_queue, (new_node.f_cost, entry_count, new_node))
+                            entry_count += 1
+                        elif cell_state.height >= 2:
+                            cascade_action = CascadeAction(coord, direction)
+                            new_board = cascade(board_dict, cascade_action)
+                            new_path = next_node.path + [cascade_action]
+                            new_node = Node(board=tuple(sorted(new_board.items())), path=new_path, g_cost=next_node.g_cost + 1, h_cost=0)
+                            heapq.heappush(priority_queue, (new_node.f_cost, entry_count, new_node))
+                            entry_count += 1
     return actions
 
 
