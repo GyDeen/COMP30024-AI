@@ -3,19 +3,20 @@ from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, Ca
 from .utils import render_board
 
 
-def move(board: dict[Coord, CellState], move_action: MoveAction, actions: list[Action]):
+def move(board: dict[Coord, CellState], move_action: MoveAction):
     # Create a new board state to apply the move effect without modifying the original board until all changes are determined
     new_board = board.copy()
-    if move_action.coord not in new_board:
-        return new_board
+    # if move_action.coord not in new_board:
+    #     return new_board
     
     curr_stack = new_board[move_action.coord]
+    target_coord = move_action.coord + move_action.direction
 
     #check if the move is valid
-    try:
-        target_coord = move_action.coord + move_action.direction
-    except ValueError:
-        sys.exit("Invalid move: Move goes out of board bounds.")
+    # try:
+    #     target_coord = move_action.coord + move_action.direction
+    # except ValueError:
+    #     sys.exit("Invalid move: Move goes out of board bounds.")
         
     if target_coord not in new_board:
         new_board[target_coord] = curr_stack
@@ -33,22 +34,22 @@ def move(board: dict[Coord, CellState], move_action: MoveAction, actions: list[A
     return new_board
 
 
-def eat(board: dict[Coord, CellState], eat_action: EatAction, actions: list[Action]):
+def eat(board: dict[Coord, CellState], eat_action: EatAction):
     # Create a new board state to apply the eat effect without modifying the original board until all changes are determined
     new_board = board.copy()
-
     attacker_coord = eat_action.coord
 
     #check if attacker position is valid
-    if attacker_coord not in new_board:
-        return new_board
+    # if attacker_coord not in new_board:
+    #     return new_board
     
     attacker = new_board[attacker_coord]
+    target_coord = eat_action.coord + eat_action.direction
 
-    try:
-        target_coord = attacker_coord + eat_action.direction
-    except ValueError:
-        return sys.exit("Invalid eat: Eat action goes out of board bounds.")
+    # try:
+    #     target_coord = attacker_coord + eat_action.direction
+    # except ValueError:
+    #     return sys.exit("Invalid eat: Eat action goes out of board bounds.")
     
     if target_coord not in new_board:
         return new_board
@@ -65,7 +66,7 @@ def eat(board: dict[Coord, CellState], eat_action: EatAction, actions: list[Acti
     return new_board
 
 
-def cascade(board: dict[Coord, CellState], move_action: CascadeAction, actions: list[Action]):
+def cascade(board: dict[Coord, CellState], move_action: CascadeAction):
     """
     Given a board state and a move action. If the move action's coord do exist in board, and the move action's direction is valid,
     then add the action to the list and perform CASCAD action.
@@ -86,8 +87,8 @@ def cascade(board: dict[Coord, CellState], move_action: CascadeAction, actions: 
     new_board = board.copy()
 
     # Check if the move action's coord exists in the board and has height >= 2
-    if move_action.coord not in new_board or new_board[move_action.coord].height < 2:
-        return new_board
+    # if move_action.coord not in new_board or new_board[move_action.coord].height < 2:
+    #     return new_board
 
     stack = new_board[move_action.coord]
     height = stack.height
@@ -106,7 +107,6 @@ def cascade(board: dict[Coord, CellState], move_action: CascadeAction, actions: 
     #print(render_board(new_board))
     new_board.pop(move_action.coord)  
     #print(render_board(new_board))
-    actions.append(CascadeAction(move_action.coord, move_action.direction))
     # print(render_board(new_board))
     return new_board
 
