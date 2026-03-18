@@ -7,7 +7,7 @@ from .action import cascade, eat, move
 import heapq
 from .state import Node
 #added
-from .heuristics import heuristic
+from .heuristics import heuristic, heuristic_bit
 from math import ceil
 
 def search(
@@ -29,7 +29,7 @@ def search(
     """
     
     start_key = encode_board(board)
-    start_node = Node(board_key=start_key, board=board, path=[], g_cost=0, h_cost=heuristic(board))
+    start_node = Node(board_key=start_key, board=board, path=[], g_cost=0, h_cost=heuristic_bit(start_key))
 
     # Priority queue for A* / UCS ordered by f_cost (g_cost + h_cost)
     priority_queue: list[tuple[int, int, Node]] = []
@@ -73,7 +73,7 @@ def search(
                         board=new_board,
                         path=new_path,
                         g_cost=new_g,
-                        h_cost=heuristic(new_board),
+                        h_cost=heuristic_bit(new_board_key),
                     )
                     heapq.heappush(priority_queue, (new_node.f_cost, entry_count, new_node))
                     entry_count += 1
@@ -110,7 +110,7 @@ def search(
                     board=new_board,
                     path=new_path,
                     g_cost=new_g,
-                    h_cost=heuristic(new_board),
+                    h_cost=heuristic_bit(new_board_key),
                 )
                 heapq.heappush(priority_queue, (new_node.f_cost, entry_count, new_node))
                 entry_count += 1
