@@ -42,9 +42,9 @@ def heuristic_bit(board_key):
     """Bitwise heuristic using integer board encoding."""
     red_positions = []
     blue_positions = []
-    total_red = 0
     highest_red = 0
     
+    # Generate the position lists and track the highest red stack height
     for i, val in enumerate(board_key):
         if val == 0: continue
         r, c = i // 8, i % 8
@@ -57,6 +57,7 @@ def heuristic_bit(board_key):
     if not blue_positions: return 0
     if not red_positions: return 100
 
+    # Find the minimum distance from each blue to the nearest red, then take the maximum of those
     max_min_distance_between_red_blue = 0
     for br, bc in blue_positions:
         min_distance_to_red = min(abs(br - rr) + abs(bc - rc) for rr, rc in red_positions)
