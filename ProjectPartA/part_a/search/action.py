@@ -86,28 +86,18 @@ def cascade(board: dict[Coord, CellState], move_action: CascadeAction):
     # Create a new board state to apply the cascade effects without modifying the original board until all changes are determined
     new_board = board.copy()
 
-    # Check if the move action's coord exists in the board and has height >= 2
-    # if move_action.coord not in new_board or new_board[move_action.coord].height < 2:
-    #     return new_board
-
     stack = new_board[move_action.coord]
     height = stack.height
     color = stack.color
 
-
     for target_coord in get_cascade_path(move_action.coord, move_action.direction, height):
-        # If the target coordinate is in the board and has a stack, we need to push it before placing the new token
+        # If the target coordinate is occupied, push the stack chain forward first
         if target_coord in new_board:
             new_board = push_stack_recursion(new_board, target_coord, move_action.direction)
-            #print(render_board(new_board))
         new_board[target_coord] = CellState(color, 1)
-        # print(render_board(new_board))
 
     # Remove the original stack after cascading
-    #print(render_board(new_board))
-    new_board.pop(move_action.coord)  
-    #print(render_board(new_board))
-    # print(render_board(new_board))
+    new_board.pop(move_action.coord, None)
     return new_board
 
 
@@ -124,32 +114,25 @@ def get_cascade_path(start: Coord, direction: Direction, height: int):
         
 
 def push_stack_recursion(board: dict[Coord, CellState], start_coord: Coord, direction: Direction) -> dict[Coord, CellState]:
-    """Recursively pushes stacks in the given direction until an empty cell is found or the edge of the board is reached."""
-    # Reached the edge of the board, stop pushing
+    """Recursively push a stack chain; eliminate any stack that gets pushed off-board."""
+
     if start_coord not in board:
         return board
 
-    # Find an empty cell, stop pushing
     stack = board[start_coord]
-    if not stack.is_stack:
-        return board
 
-    # Calculate the next coordinate in the cascade direction
     try:
         next_coord = start_coord + direction
-    # We reach the bound of the board, all the stacks still need to be pushed will be eliminated
     except ValueError:
-        # print(render_board(board))
+        # Pushed off the board: remove this stack
+        del board[start_coord]
         return board
 
-    # Recursively push the next stack
+    # Push the next stack first (depth-first) so we don't overwrite it
     board = push_stack_recursion(board, next_coord, direction)
 
-    # Move the current stack to the next coordinate
     board[next_coord] = stack
-    # Remove the stack from its current position
-    del board[start_coord]  
-    
+    del board[start_coord]
     return board
     
     
