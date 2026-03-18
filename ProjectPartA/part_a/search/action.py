@@ -1,8 +1,13 @@
 import sys
-from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction
+from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction, BOARD_N
 from .utils import render_board
-from .program import LEFT, RIGHT, UP, DOWN, BOARD_N
 
+
+
+UP, DOWN, LEFT, RIGHT = -8, 8, -1, 1
+MOVE = 1
+EAT = 2
+CASCADE = 3
 
 def move(board_key: tuple[int, ...], start_idx: int, offset: int) -> tuple[int, ...]:
     board = list(board_key)
