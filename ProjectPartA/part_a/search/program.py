@@ -3,12 +3,13 @@
 
 from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction, PlayerColor, BOARD_N
 from .utils import render_board
-from .action import cascade, eat, move
+from .action import cascade, eat, move, UP, DOWN, LEFT, RIGHT, EAT, MOVE, CASCADE
 import heapq
-from .state import Node
-#added
 from .heuristics import heuristic, heuristic_bit
-from math import ceil
+OFFSETS = [UP, DOWN, LEFT, RIGHT]
+
+# Final direction mappping for final output
+DIR_MAP = {UP: Direction.Up, DOWN: Direction.Down, LEFT: Direction.Left, RIGHT: Direction.Right}
 
 def search(
     board: dict[Coord, CellState]
@@ -29,91 +30,47 @@ def search(
     """
     
     start_key = encode_board(board)
-    start_node = Node(board_key=start_key, board=board, path=[], g_cost=0, h_cost=heuristic_bit(start_key))
+    start_h = heuristic_bit(start_key)
+    pq = [(start_h, 0, start_key, ())]
+    best_g = {start_key: 0}
 
-    # Priority queue for A* / UCS ordered by f_cost (g_cost + h_cost)
-    priority_queue: list[tuple[int, int, Node]] = []
-    entry_count = 0  # tie‑breaker for heap order stability
-    best_cost: dict[tuple[int, ...], int] = {}
-    
-    heapq.heappush(priority_queue, (start_node.f_cost, entry_count, start_node))
-    entry_count += 1
-    
-    while priority_queue:
-        f_val, _, next_node = heapq.heappop(priority_queue)
+    while pq:
+        f, g, curr_key, path = heapq.heappop(pq)
+        next_key = curr_key
 
         # Skip if we have already seen this board with an equal or better cost
-        if best_cost.get(next_node.board_key, float('inf')) < next_node.g_cost:
+        if g > best_g.get(next_key, float('inf')):
             continue
-        best_cost[next_node.board_key] = next_node.g_cost
 
-        # Goal test
-        if no_blue_key(next_node.board_key):
-            return next_node.path
+        if no_blue_key(next_key):
+            return reconstruct_path(path)
+        
+        for i, val in enumerate(next_key):
+            # Only red stacks can act
+            if val <= 0: continue
+            
+            r, c = divmod(i, BOARD_N)
+            for d_off in OFFSETS:
+                # Boundary check
+                if not is_valid_boundary(r, c, d_off): continue
+                
+                target_idx = i + d_off
+                target_val = next_key[target_idx]
 
-        board_dict = next_node.board
-
-        for coord, cell_state in board_dict.items():
-            if cell_state.color != PlayerColor.RED:
-                continue
-
-            # CASCADE: always legal when height >= 2 (may push off-board)
-            if cell_state.height >= 2:
-                for direction in Direction:
-                    action = CascadeAction(coord, direction)
-                    new_board = cascade(board_dict, action)
-                    new_board_key = encode_board(new_board)
-                    new_g = next_node.g_cost + 1
-                    if best_cost.get(new_board_key, float('inf')) <= new_g:
-                        continue
-                    best_cost[new_board_key] = new_g
-                    new_path = next_node.path + [action]
-                    new_node = Node(
-                        board_key=new_board_key,
-                        board=new_board,
-                        path=new_path,
-                        g_cost=new_g,
-                        h_cost=heuristic_bit(new_board_key),
-                    )
-                    heapq.heappush(priority_queue, (new_node.f_cost, entry_count, new_node))
-                    entry_count += 1
-
-            # MOVE / EAT (must remain on board)
-            for direction in Direction:
-                if not is_within_bounds(coord, direction):
-                    continue
-                target_coord = coord + direction
-                target_cell = board_dict.get(target_coord)
-
-                # EAT
-                if target_cell is not None and target_cell.color == PlayerColor.BLUE and cell_state.height >= target_cell.height:
-                    action = EatAction(coord, direction)
-                    new_board = eat(board_dict, action)
-
-                # MOVE
-                elif target_cell is None or target_cell.color == PlayerColor.RED:
-                    action = MoveAction(coord, direction)
-                    new_board = move(board_dict, action)
-
-                else:
-                    continue
-
-                new_board_key = encode_board(new_board)
-                new_g = next_node.g_cost + 1
-                if best_cost.get(new_board_key, float('inf')) <= new_g:
-                    continue
-                best_cost[new_board_key] = new_g
-
-                new_path = next_node.path + [action]
-                new_node = Node(
-                    board_key=new_board_key,
-                    board=new_board,
-                    path=new_path,
-                    g_cost=new_g,
-                    h_cost=heuristic_bit(new_board_key),
-                )
-                heapq.heappush(priority_queue, (new_node.f_cost, entry_count, new_node))
-                entry_count += 1
+                # EAT: target is BLUE and attacker can eat entire stack
+                if target_val < 0 and val >= abs(target_val):
+                    new_state = eat(next_key, i, d_off)
+                    push_state(new_state, g + 1, path + ((EAT, i, d_off),), pq, best_g)
+                
+                # MOVE: target is EMPTY or RED (merging)
+                elif target_val >= 0:
+                    new_state = move(curr_key, i, d_off)
+                    push_state(new_state, g + 1, path + ((MOVE, i, d_off),), pq, best_g)
+                
+                # CASCADE: Requires height >= 2 [cite: 510]
+                if val >= 2:
+                    new_state = cascade(curr_key, i, d_off)
+                    push_state(new_state, g + 1, path + ((CASCADE, i, d_off),), pq, best_g)
 
     return None
 
@@ -121,11 +78,6 @@ def search(
 def no_blue_key(board_key: tuple[int, ...]) -> bool:
     """Fast goal check using integer board encoding (no negative = no blue)."""
     return all(v >= 0 for v in board_key)
-
-def is_within_bounds(coord: Coord, direction: Direction) -> bool:
-    new_r = coord.r + direction.r
-    new_c = coord.c + direction.c
-    return 0 <= new_r < BOARD_N and 0 <= new_c < BOARD_N
 
 
 def encode_board(board: dict[Coord, CellState]) -> tuple[int, ...]:
@@ -140,3 +92,30 @@ def encode_board(board: dict[Coord, CellState]) -> tuple[int, ...]:
         val = cell.height if cell.color == PlayerColor.RED else -cell.height
         arr[idx] = val
     return tuple(arr)
+
+def is_valid_boundary(r: int, c: int, offset: int) -> bool:
+    """Checks if the move stays within the 8x8 grid."""
+    if offset == UP:    return r > 0
+    if offset == DOWN:  return r < 7
+    if offset == LEFT:  return c > 0
+    if offset == RIGHT: return c < 7
+    return False
+
+def reconstruct_path(int_path: tuple[tuple[int, int, int], ...]) -> list[Action]:
+    """Converts internal (type, idx, off) tuples to required Action objects."""
+    actions = []
+    for act_type, idx, off in int_path:
+        r, c = divmod(idx, BOARD_N)
+        coord = Coord(r, c)
+        direction = DIR_MAP[off]
+        if act_type == MOVE:    actions.append(MoveAction(coord, direction))
+        elif act_type == EAT:   actions.append(EatAction(coord, direction))
+        else:                   actions.append(CascadeAction(coord, direction))
+    return actions
+
+def push_state(state: tuple[int, ...], g: int, path: tuple[tuple[int, int, int], ...], pq: list[tuple[int, int, tuple[int, ...], tuple[tuple[int, int, int], ...]]], best_g: dict[tuple[int, ...], int]):
+    """Prunes and pushes new states into the Priority Queue."""
+    if g < best_g.get(state, float('inf')):
+        best_g[state] = g
+        h = heuristic_bit(state)
+        heapq.heappush(pq, (g + h, g, state, path))
