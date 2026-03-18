@@ -5,9 +5,8 @@ from dataclasses import dataclass
 class Node:
     # Immutable key representation of the board (see encode_board in program.py)
     board_key: tuple[int, ...]
-    # Mutable board dictionary used for expanding successors
-    board: dict[Coord, CellState]
-    path: list[Action]
+    # Sequence of actions taken to reach this state, encoded as (action_type, index in board, direction))
+    path: tuple[tuple[int, int, int], ...] 
     g_cost: int                    # Actual cost from start (number of actions)
     h_cost: int                    # Heuristic estimate to the goal
 
