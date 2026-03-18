@@ -63,4 +63,4 @@ def heuristic_bit(board_key):
         min_distance_to_red = min(abs(br - rr) + abs(bc - rc) for rr, rc in red_positions)
         max_min_distance_between_red_blue = max(max_min_distance_between_red_blue, min_distance_to_red)
 
-    return math.ceil(max_min_distance_between_red_blue / highest_red)
+    return max(math.ceil(max_min_distance_between_red_blue / highest_red), len(blue_positions))
