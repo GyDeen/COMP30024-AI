@@ -12,8 +12,6 @@ from typing import Generator
 #          To implement your solution you should modify the `search` function
 #          in `program.py` instead, as discussed in the specification.
 
-BOARD_N = 8
-
 
 @dataclass(frozen=True, slots=True)
 class Vector2:
