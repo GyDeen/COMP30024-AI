@@ -1,6 +1,7 @@
 from .core import PlayerColor
 import math
 
+DIST_TABLE = [[abs(i//8 - j//8) + abs(i%8 - j%8) for j in range(64)] for i in range(64)]
 
 def heuristic(board_dict):
     """Admissible lower bound on actions remaining.
@@ -47,20 +48,19 @@ def heuristic_bit(board_key):
     # Generate the position lists and track the highest red stack height
     for i, val in enumerate(board_key):
         if val == 0: continue
-        r, c = i // 8, i % 8
         if val > 0:
-            red_positions.append((r, c))
+            red_positions.append(i)
             if val > highest_red: highest_red = val
         else:
-            blue_positions.append((r, c))
+            blue_positions.append(i)
 
     if not blue_positions: return 0
     if not red_positions: return 100
 
-    # Find the minimum distance from each blue to the nearest red, then take the maximum of those
+    # Find the minimum Manhattan distance from each blue to the nearest red, then take the maximum of those
     max_min_distance_between_red_blue = 0
-    for br, bc in blue_positions:
-        min_distance_to_red = min(abs(br - rr) + abs(bc - rc) for rr, rc in red_positions)
+    for blue_idx in blue_positions:
+        min_distance_to_red = min(DIST_TABLE[blue_idx][red_idx] for red_idx in red_positions)
         max_min_distance_between_red_blue = max(max_min_distance_between_red_blue, min_distance_to_red)
 
     return max(math.ceil(max_min_distance_between_red_blue / highest_red), len(blue_positions))
