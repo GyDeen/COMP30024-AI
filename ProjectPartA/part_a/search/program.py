@@ -5,11 +5,13 @@ from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, Ca
 from .utils import render_board
 from .action import cascade, eat, move, UP, DOWN, LEFT, RIGHT, EAT, MOVE, CASCADE
 import heapq
-from .heuristics import heuristic, heuristic_bit
+from .heuristics import heuristic_bit
 OFFSETS = [UP, DOWN, LEFT, RIGHT]
 
 # Final direction mappping for final output
 DIR_MAP = {UP: Direction.Up, DOWN: Direction.Down, LEFT: Direction.Left, RIGHT: Direction.Right}
+EAT_PRIORITY, CASCADE_PRIORITY, MOVE_PRIORITY = 0, 1, 2
+
 
 def search(
     board: dict[Coord, CellState]
@@ -30,12 +32,15 @@ def search(
     """
     
     start_key = encode_board(board)
-    start_h = heuristic_bit(start_key)
-    pq = [(start_h, 0, start_key, ())]
+    start_f = heuristic_bit(start_key)
+    entry_count = 0
+    # Priority Queue entries are tuples of (f, action priority, entry_count, g, board, path), where f = g + h and path is a tuple of (action_type, idx, offset) for reconstructing the final Action list.
+    pq = [(start_f, 0, entry_count, 0, start_key, ())]
     best_g = {start_key: 0}
+    
 
     while pq:
-        f, g, curr_key, path = heapq.heappop(pq)
+        f, _, entry_count, g, curr_key, path = heapq.heappop(pq)
         next_key = curr_key
 
         # Skip if we have already seen this board with an equal or better cost
@@ -60,17 +65,20 @@ def search(
                 # EAT: target is BLUE and attacker can eat entire stack
                 if target_val < 0 and val >= abs(target_val):
                     new_state = eat(next_key, i, d_off)
-                    push_state(new_state, g + 1, path + ((EAT, i, d_off),), pq, best_g)
-                
+                    entry_count += 1
+                    push_state(new_state, g + 1, EAT_PRIORITY, entry_count, path + ((EAT, i, d_off),), pq, best_g)
+
                 # MOVE: target is EMPTY or RED (merging)
                 elif target_val >= 0:
                     new_state = move(curr_key, i, d_off)
-                    push_state(new_state, g + 1, path + ((MOVE, i, d_off),), pq, best_g)
-                
+                    entry_count += 1
+                    push_state(new_state, g + 1, MOVE_PRIORITY, entry_count, path + ((MOVE, i, d_off),), pq, best_g)
+
                 # CASCADE: Requires height >= 2 [cite: 510]
                 if val >= 2:
                     new_state = cascade(curr_key, i, d_off)
-                    push_state(new_state, g + 1, path + ((CASCADE, i, d_off),), pq, best_g)
+                    entry_count += 1
+                    push_state(new_state, g + 1, CASCADE_PRIORITY, entry_count, path + ((CASCADE, i, d_off),), pq, best_g)
 
     return None
 
@@ -113,9 +121,9 @@ def reconstruct_path(int_path: tuple[tuple[int, int, int], ...]) -> list[Action]
         else:                   actions.append(CascadeAction(coord, direction))
     return actions
 
-def push_state(state: tuple[int, ...], g: int, path: tuple[tuple[int, int, int], ...], pq: list[tuple[int, int, tuple[int, ...], tuple[tuple[int, int, int], ...]]], best_g: dict[tuple[int, ...], int]):
+def push_state(state: tuple[int, ...], g: int, action_type: int, entry_count: int, path: tuple[tuple[int, int, int], ...], pq: list[tuple[int, int, tuple[int, ...], tuple[tuple[int, int, int], ...]]], best_g: dict[tuple[int, ...], int]):
     """Prunes and pushes new states into the Priority Queue."""
     if g < best_g.get(state, float('inf')):
         best_g[state] = g
         h = heuristic_bit(state)
-        heapq.heappush(pq, (g + h, g, state, path))
+        heapq.heappush(pq, (g + h, action_type, entry_count, g, state, path))
