@@ -3,3 +3,4 @@ test-vis2 optimal 2 steps
 test-vis3 optiaml 5 steps
 test-vis4 optimal 6 steps
 test-vis5 optimal 3 steps
+test-vis6 optimal 17 steps
