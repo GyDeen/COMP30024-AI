@@ -23,7 +23,7 @@ def heuristic_bit(board_key):
 
         # Fast edge distance calculation
         br, bc = divmod(b_idx, 8)
-        # Distance to the closest edge (0 = on edge, 1 = 1 step away, etc.)
+        # Distance to the closest edge
         min_edge_dist = min(br, 7 - br, bc, 7 - bc)
 
         for r_idx, r_height in reds:
@@ -36,7 +36,7 @@ def heuristic_bit(board_key):
                 cost = max(1, dist - r_height + 1)
 
             # If red height is not sufficient to push blue off the edge or eat it, add 1 since it need to "merge" with another red
-            # to be helpful
+            # to be useful
             if r_height < b_height:
                 if r_height == 1 or r_height <= min_edge_dist:
                     cost += 1 

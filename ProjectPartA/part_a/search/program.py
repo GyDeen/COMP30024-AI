@@ -74,7 +74,7 @@ def search(
                     entry_count += 1
                     push_state(new_state, g + 1, MOVE_PRIORITY, entry_count, path + ((MOVE, i, d_off),), pq, best_g)
 
-                # CASCADE: Requires height >= 2 [cite: 510]
+                # CASCADE: Requires height >= 2
                 if val >= 2:
                     new_state = cascade(curr_key, i, d_off)
                     entry_count += 1

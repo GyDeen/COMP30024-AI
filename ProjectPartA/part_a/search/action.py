@@ -1,6 +1,4 @@
-import sys
-from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction, BOARD_N
-from .utils import render_board
+from .core import Coord, Direction, BOARD_N
 
 
 
