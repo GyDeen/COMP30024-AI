@@ -1,11 +1,9 @@
 DIST_TABLE = [[abs(i//8 - j//8) + abs(i%8 - j%8) for j in range(64)] for i in range(64)]
 
 def heuristic_bit(board_key):
-    """Bitwise heuristic using integer board encoding."""
-    reds = []   # Store as (index, height)
-    blues = []  # Store as (index, height)
+    reds = []   
+    blues = []  
     
-    # Collect exact pieces and their heights
     for i, val in enumerate(board_key):
         if val > 0:
             reds.append((i, val))
@@ -17,37 +15,48 @@ def heuristic_bit(board_key):
 
     max_min_cost = 0
 
-    # Calculate the specific cost for each Blue stack
     for b_idx, b_height in blues:
-        min_cost_for_this_blue = float('inf')
+        best_cost_for_blue = float('inf')
 
-        # Fast edge distance calculation
-        br, bc = divmod(b_idx, 8)
-        # Distance to the closest edge
-        min_edge_dist = min(br, 7 - br, bc, 7 - bc)
+        # We treat every Red piece as a potential "Anchor" where the final merge happens
+        for anchor_idx, anchor_h in reds:
+            d_target = DIST_TABLE[b_idx][anchor_idx]
+            current_h = anchor_h
+            
+            # Cost if this anchor attacks alone without any help
+            best_cost_for_anchor = max(1, d_target - current_h + 1)
+            
+            # Gather all other Red pieces to potentially pull them in
+            other_reds = []
+            for r_idx, r_height in reds:
+                if r_idx != anchor_idx:
+                    dist_to_anchor = DIST_TABLE[anchor_idx][r_idx]
+                    other_reds.append((dist_to_anchor, r_height))
+                    
+            # Sort by distance so we naturally absorb the closest pieces first
+            other_reds.sort(key=lambda x: x[0])
+            
+            max_radius = 0
+            # Simulate pulling in pieces to build a super-stack
+            for dist_to_anchor, h in other_reds:
+                current_h += h
+                
+                # The minimum travel cost to bring this piece to the anchor
+                max_radius = dist_to_anchor 
+                
+                # Total cost = (Travel distance of the furthest piece) + (Actions to cascade)
+                cost = max_radius + max(1, d_target - current_h + 1)
+                
+                # If pulling this piece in actually saved us moves, update the best cost
+                if cost < best_cost_for_anchor:
+                    best_cost_for_anchor = cost
+                    
+        # The lowest cost found among all anchors is the true lower bound for this Blue stack
+        if best_cost_for_anchor < best_cost_for_blue:
+            best_cost_for_blue = best_cost_for_anchor
 
-        for r_idx, r_height in reds:
-            dist = DIST_TABLE[b_idx][r_idx]
-
-            # The minimum cost to reach the blue stack 
-            if r_height == 1:
-                cost = dist
-            else:
-                cost = max(1, dist - r_height + 1)
-
-            # If red height is not sufficient to push blue off the edge or eat it, add 1 since it need to "merge" with another red
-            # to be useful
-            if r_height < b_height:
-                if r_height == 1 or r_height <= min_edge_dist:
-                    cost += 1 
-
-            # There is a lower cost of eliminating this blue stack, so we take the minimum over all red stacks
-            if cost < min_cost_for_this_blue:
-                min_cost_for_this_blue = cost
-
-        # We want the maximum of these minimum costs across all blue stacks to get a safe lower bound on the remaining cost
-        if min_cost_for_this_blue > max_min_cost:
-            max_min_cost = min_cost_for_this_blue
+        # We take the bottleneck across all Blue stacks
+        if best_cost_for_blue > max_min_cost:
+            max_min_cost = best_cost_for_blue
 
     return max_min_cost
-
