@@ -4,13 +4,14 @@
 from .core import CellState, Coord, Direction, Action, MoveAction, EatAction, CascadeAction, PlayerColor, BOARD_N
 from .utils import render_board
 from .action import cascade, eat, move, UP, DOWN, LEFT, RIGHT, EAT, MOVE, CASCADE
-import heapq
 from .heuristics import heuristic_bit
-OFFSETS = [UP, DOWN, LEFT, RIGHT]
+import heapq
+
 
 # Final direction mappping for final output
 DIR_MAP = {UP: Direction.Up, DOWN: Direction.Down, LEFT: Direction.Left, RIGHT: Direction.Right}
 EAT_PRIORITY, CASCADE_PRIORITY, MOVE_PRIORITY = 0, 1, 2
+OFFSETS = [UP, DOWN, LEFT, RIGHT]
 
 
 def search(
