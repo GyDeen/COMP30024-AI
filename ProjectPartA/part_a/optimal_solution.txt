@@ -6,4 +6,5 @@ test-vis5 optimal 3 steps
 test-vis6 optimal 17 steps
 test-vis7 optimal 11 steps
 test-vis9 optimal 10 steps
-test-vis-10 optimal 4 steps
+test-vis10 optimal 4 steps
+test-vis11 optimal 21 steps
