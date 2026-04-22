@@ -34,9 +34,9 @@ class BoardState:
     def is_empty(self, idx: int) -> bool:
         return self.state[idx] == 0
     
-    def set_cell(self, idx: int, is_red_player: bool, height: int):
+    def set_cell(self, idx: int, is_red: bool, height: int):
         """Creates a completely new stack at a cell."""
-        flag = RED_FLAG if is_red_player else BLUE_FLAG
+        flag = RED_FLAG if is_red else BLUE_FLAG
         self.state[idx] = flag | height
 
     def clear_cell(self, idx: int):
@@ -70,3 +70,18 @@ class BoardState:
     def place_stack(self, idx: int, value: int):
         """Places a raw bitwise value directly into a cell."""
         self.state[idx] = value
+        
+    def render(self):
+        """Visualise current board"""
+        output = ""
+        for r in range(8):
+            for c in range(8):
+                idx = r * 8 + c
+                if self.is_empty(idx):
+                    output += ".  "
+                else:
+                    color_char = "R" if self.is_red(idx) else "B"
+                    height = self.get_height(idx)
+                    output += f"{color_char}{height} "
+            output += "\n"
+        print(output)

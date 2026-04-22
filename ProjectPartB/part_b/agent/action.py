@@ -1,4 +1,4 @@
-from board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
 
 BOARD_N = 8
 UP, DOWN, LEFT, RIGHT = -8, 8, -1, 1
@@ -57,28 +57,29 @@ def cascade(board_key: BoardState, start_idx: int, offset: int) -> BoardState:
     is_red = board.is_red(start_idx)
     h = board.lift_stack(start_idx) & HEIGHT_MASK
 
+    pos = start_idx
+
     # Spread 1 to h tokens away
     for dist in range(1, h + 1):
-        # Calculate current landing spot
-        # We must check bounds for every step of the spread
-        pos = start_idx
-        in_bounds = True
-        for _ in range(dist):
-            if is_valid_coord(pos, offset):
-                pos += offset
-            else:
-                in_bounds = False
-                break
         
-        if not in_bounds:
-            # Token lost over the edge
-            continue
-
+        # Check if the NEXT step falls off the board
+        if not is_valid_coord(pos, offset):
+            # Get the token count that remain on the board
+            tokens_falling_off = (h + 1) - dist
+            if is_red:
+                board.red_tokens -= tokens_falling_off
+            else:
+                board.blue_tokens -= tokens_falling_off
+            break # Once we hit the edge, all further tokens fall off instantly
+            
+        # Step forward
+        pos += offset
+        
+        # Push existing pieces if necessary
         if not board.is_empty(pos):
-            # Existing stack is pushed one cell further
             push_recursive(board, pos, offset)
             
-        # Place the new single token
+        # Place the single spreading token
         board.set_cell(pos, is_red, 1)
         
     return board
