@@ -10,14 +10,14 @@ class BoardState:
     def __init__(self, initial_bytes=None):
         if initial_bytes is not None:
             # Clone an existing board
-            self.state = bytearray(initial_bytes)
+            self.state = bytearray(initial_bytes.state)
             self.red_tokens = initial_bytes.red_tokens
             self.blue_tokens = initial_bytes.blue_tokens
         else:
             # Create an empty 64-cell byte board
             self.state = bytearray(64)
-            self.red_tokens = 12
-            self.blue_tokens = 12
+            self.red_tokens = 0
+            self.blue_tokens = 0
 
     def get_height(self, idx: int) -> int:
         """Returns the height of the stack at the given 1D index (0-63)."""
@@ -47,7 +47,16 @@ class BoardState:
             self.blue_tokens -= self.get_height(idx)
             
         self.state[idx] = 0
-        
+
+    def spawn_stack(self, idx: int, is_red: bool):
+        """Creates a new stack at the specified index."""
+        if is_red:
+            self.red_tokens += 3
+        else:
+            self.blue_tokens += 3
+
+        self.state[idx] = (RED_FLAG if is_red else BLUE_FLAG) | 3
+
     def get_hashable(self) -> bytes:
         """Converts the mutable bytearray into immutable bytes for hashing."""
         return bytes(self.state)
