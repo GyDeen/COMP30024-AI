@@ -32,7 +32,7 @@ def heuristic_bit(board_key: tuple[int, ...]) -> int:
     for b_idx in blue_indices:
         br, bc = divmod(b_idx, MAX_COL) # get row and column of the blue stack (no. row = no. col)
         
-        best_dist = MAX_COL * MAX_ROW  # initialise to a large number
+        best_dist = MAX_COL * MAX_ROW  # initialise to a the maximum possible distance on the board
         for r_idx in red_indices:
             rr, rc = divmod(r_idx, 8)
             dist = abs(br - rr) + abs(bc - rc)

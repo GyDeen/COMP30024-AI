@@ -1,34 +1,42 @@
+from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+
 BOARD_N = 8
 UP, DOWN, LEFT, RIGHT = -8, 8, -1, 1
 MOVE = 1
 EAT = 2
 CASCADE = 3
 
-def move(board_key: tuple[int, ...], start_idx: int, offset: int) -> tuple[int, ...]:
-    board = list(board_key)
-    target_idx = start_idx + offset
-    val = board[start_idx]
-    
-    # Remove the stack on the moving cell
-    board[start_idx] = 0
-    # Add the stack to the target cell
-    board[target_idx] += val
 
-    return tuple(board)
+def place(board_key: BoardState, idx: int, is_red: bool) -> BoardState:
+    board = BoardState(board_key)
+    board.spawn_stack(idx, is_red)
+    return board
 
-
-def eat(board_key: tuple[int, ...], start_idx: int, offset: int) -> tuple[int, ...]:
-    board = list(board_key)
+def move(board_key: BoardState, start_idx: int, offset: int) -> BoardState:
+    board = BoardState(board_key)
     target_idx = start_idx + offset
     
-    # Attacker replaces enemy [cite: 469]
-    board[target_idx] = board[start_idx]
-    board[start_idx] = 0
+    moving_stack = board.lift_stack(start_idx)
+
+    color = moving_stack & (RED_FLAG | BLUE_FLAG)
+    new_height = (moving_stack & HEIGHT_MASK) + board.get_height(target_idx)
+    board.place_stack(target_idx, color | new_height)
     
-    return tuple(board)
+    return board
 
 
-def cascade(board_key: tuple[int, ...], start_idx: int, offset: int) -> tuple[int, ...]:
+def eat(board_key: BoardState, start_idx: int, offset: int) -> BoardState:
+    board = BoardState(board_key)
+    target_idx = start_idx + offset
+    
+    # Attacker replaces enemy
+    board.clear_cell(start_idx + offset)
+    board.place_stack(target_idx, board.lift_stack(start_idx))
+    
+    return board
+
+
+def cascade(board_key: BoardState, start_idx: int, offset: int) -> BoardState:
     """
     Given a board state and a move action. If the move action's coord do exist in board, and the move action's direction is valid,
     then add the action to the list and perform CASCAD action.
@@ -45,51 +53,51 @@ def cascade(board_key: tuple[int, ...], start_idx: int, offset: int) -> tuple[in
     4. Any stack that gets pushed off the edge of the board is eliminated from the game.
     5. Any token from the cascading stack that would land off the edge of the board is also eliminated.
     """
-    board = list(board_key)
-    h = board[start_idx]
-    board[start_idx] = 0 # Original stack is removed
-    
+    board = BoardState(board_key)
+    is_red = board.is_red(start_idx)
+    h = board.lift_stack(start_idx) & HEIGHT_MASK
+
+    pos = start_idx
+
     # Spread 1 to h tokens away
     for dist in range(1, h + 1):
-        # Calculate current landing spot
-        # We must check bounds for every step of the spread
-        pos = start_idx
-        in_bounds = True
-        for _ in range(dist):
-            if is_valid_coord(pos, offset):
-                pos += offset
-            else:
-                in_bounds = False
-                break
         
-        if not in_bounds:
-            # Token lost over the edge
-            continue
+        # Check if the NEXT step falls off the board
+        if not is_valid_coord(pos, offset):
+            # Get the token count that remain on the board
+            tokens_falling_off = (h + 1) - dist
+            if is_red:
+                board.red_tokens -= tokens_falling_off
+            else:
+                board.blue_tokens -= tokens_falling_off
+            break # Once we hit the edge, all further tokens fall off instantly
             
-        if board[pos] != 0:
-            # Existing stack is pushed one cell further 
+        # Step forward
+        pos += offset
+        
+        # Push existing pieces if necessary
+        if not board.is_empty(pos):
             push_recursive(board, pos, offset)
             
-        # Place the new single token
-        board[pos] = 1 
+        # Place the single spreading token
+        board.set_cell(pos, is_red, 1)
         
-    return tuple(board)
+    return board
         
 
-def push_recursive(board: list[int], pos: int, offset: int):
-    """Recursive logic to push stacks off the board or into next cells[cite: 514, 515]."""
+def push_recursive(board: BoardState, pos: int, offset: int):
+    """Recursive logic to push stacks off the board or into next cells."""
     if not is_valid_coord(pos, offset):
         # Pushed off the edge
-        board[pos] = 0
+        board.clear_cell(pos)
         return
 
     target = pos + offset
-    if board[target] != 0:
-        # Pushed stacks can in turn push other stacks 
+    if not board.is_empty(target):
+        # Pushed stacks can in turn push other stacks
         push_recursive(board, target, offset)
     
-    board[target] = board[pos]
-    board[pos] = 0
+    board.place_stack(target, board.lift_stack(pos))
 
 
 def is_valid_coord(idx, offset):
