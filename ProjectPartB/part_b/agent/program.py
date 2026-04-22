@@ -4,6 +4,8 @@
 from referee.game import PlayerColor, Coord, Direction, \
     Action, PlaceAction, MoveAction, EatAction, CascadeAction
 
+from .board import BoardState
+from .action import place, move, eat, cascade
 
 class Agent:
     """
