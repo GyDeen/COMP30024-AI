@@ -2,10 +2,47 @@ from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
 
 BOARD_N = 8
 UP, DOWN, LEFT, RIGHT = -8, 8, -1, 1
+PLACE = 0
 MOVE = 1
 EAT = 2
 CASCADE = 3
 
+
+def pack_move(action_type: int, start: int, target: int) -> int:
+    """Packs a move into a single 16-bit integer.
+    Format: [2 bits action][6 bits start][6 bits target]"""
+    return (action_type << 12) | (start << 6) | target
+
+def unpack_move(packed_move: int) -> tuple[int, int, int]:
+    """
+    Unpacks a 16-bit integer back into (action_type, start, target).
+    """
+    target = packed_move & 0b111111
+    start = (packed_move >> 6) & 0b111111
+    action_type = (packed_move >> 12) & 0b11
+
+    return action_type, start, target
+
+def execute_move(board_key: BoardState, packed_move: int, is_red: bool) -> BoardState:
+    """
+    Decodes the packed integer and automatically routes it to the correct 
+    physics function. This is the only function your Minimax tree needs to call.
+    """
+    action_type, start_idx, target_idx = unpack_move(packed_move)
+    
+    if action_type == PLACE:
+        return place(board_key, target_idx, is_red)
+
+    offset = target_idx - start_idx
+    
+    if action_type == MOVE:
+        return move(board_key, start_idx, offset)
+    elif action_type == EAT:
+        return eat(board_key, start_idx, offset)
+    elif action_type == CASCADE:
+        return cascade(board_key, start_idx, offset)
+    
+    raise ValueError(f"Invalid action_type {action_type} unpacked from move {packed_move}")
 
 def place(board_key: BoardState, idx: int, is_red: bool) -> BoardState:
     board = BoardState(board_key)
