@@ -1,4 +1,6 @@
 from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+from referee.game import PlayerColor, Coord, Direction, \
+    Action, PlaceAction, MoveAction, EatAction, CascadeAction
 
 BOARD_N = 8
 UP, DOWN, LEFT, RIGHT = -8, 8, -1, 1
@@ -22,6 +24,39 @@ def unpack_move(packed_move: int) -> tuple[int, int, int]:
     action_type = (packed_move >> 12) & 0b11
 
     return action_type, start, target
+
+def translate_to_Action(packed_move: int) -> Action:
+    """
+    Translates a packed move into an Action object for the referee.
+    """
+    action_type, start_idx, target_idx = unpack_move(packed_move)
+    r, c = divmod(start_idx, BOARD_N)
+    coord = Coord(r, c)
+    
+    direction = None
+    offset =  start_idx - target_idx
+    if offset == UP:
+        direction = Direction.Up
+    elif offset == DOWN:
+        direction = Direction.Down
+    elif offset == LEFT:
+        direction = Direction.Left
+    elif offset == RIGHT:
+        direction = Direction.Right
+    else:
+        raise ValueError(f"Invalid offset {offset} unpacked from move {packed_move}")
+
+    if action_type == PLACE:
+        return PlaceAction(coord)
+    
+    if action_type == MOVE:
+        return MoveAction(coord, direction)
+    elif action_type == EAT:
+        return EatAction(coord, direction)
+    elif action_type == CASCADE:
+        return CascadeAction(coord, direction)
+
+    raise ValueError(f"Invalid action_type {action_type} unpacked from move {packed_move}")
 
 def execute_move(board_key: BoardState, packed_move: int, is_red: bool) -> BoardState:
     """
