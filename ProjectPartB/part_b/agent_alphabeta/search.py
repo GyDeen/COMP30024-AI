@@ -1,5 +1,5 @@
 from .board import BoardState
-from .action import place, move, eat, cascade,pack_move,unpack_move, translate_to_Action,execute_move
+from .action import pack_move, translate_to_Action, execute_move
 from .action import UP, DOWN, LEFT, RIGHT, PLACE, MOVE, EAT, CASCADE
 from referee.game.actions import Action
 import time
@@ -16,7 +16,7 @@ for i in range(64):
     if c < 7: neighbors[1]  = i + 1  
     ADJACENT.append(neighbors)
 
-def get_best_move(board: BoardState, is_red: bool, time_remaining: float) -> Action:
+def get_best_move(board: BoardState, is_placing: bool, is_red: bool, time_remaining: float, eval_function) -> Action:
     time_limit_for_turn = min(time_remaining / 40.0, 3.0)
     
     if time_remaining < 5.0:
@@ -25,62 +25,70 @@ def get_best_move(board: BoardState, is_red: bool, time_remaining: float) -> Act
     start_time = time.perf_counter()
     best_move = None
     
-    for depth in range(1, 20):
+    if is_placing:
+        max_depth = 8
+    else:
+        max_depth = 20
+    
+    # Iterative Deepening Search
+    for depth in range(1, max_depth + 1):
         try:
-            move, score = search_all_move(board, depth, float('-inf'), float('inf'), True, is_red, start_time, time_limit_for_turn)
-            
+            move, score = search_all_move(board, depth, float('-inf'), float('inf'), is_placing, True, is_red, start_time, time_limit_for_turn, eval_function)
+
             best_move = move
         except TimeoutError:
             break
     
     # If we couldn't finished searching in even depth of 1, we randomly pick one from a possible move
     if best_move is None:
-        is_placing = (board.red_tokens + board.blue_tokens < 8)
         fallback_moves = generate_possible_moves(board, is_placing, is_max=True, is_red=is_red)
         best_move = fallback_moves[0]
+        
 
     return translate_to_Action(best_move)
 
 
-def search_all_move(board: BoardState, depth: int, alpha: float, beta: float, 
-                    is_max: bool, is_red: bool, start_time: float, time_limit: float):
+def search_all_move(board: BoardState, depth: int, alpha: float, beta: float, is_placing: bool,
+                    is_max: bool, is_red: bool, start_time: float, time_limit: float, eval_function):
     # No more time to go
     if time.perf_counter() - start_time > time_limit:
         raise TimeoutError()
     
     best_move = None
     best_score = float('-inf')
-    moves = generate_possible_moves(board, is_placing=False, is_max=is_max, is_red=is_red)
-    
+    moves = generate_possible_moves(board, is_placing=is_placing, is_max=is_max, is_red=is_red)
+
     for current_move in moves:
         new_board = execute_move(board, current_move, is_red)
-        score = alphabeta(new_board, depth - 1, alpha, beta, not is_max, not is_red, start_time, time_limit)
-        
+        score = alphabeta(new_board, depth - 1, alpha, beta, is_placing, not is_max, not is_red, start_time, time_limit, eval_function)
+
+        # Update best move and score if we found a better one
         if score > best_score:
             best_score = score
             best_move = current_move
         
+        # Update alpha for pruning
         alpha = max(alpha, best_score)
         if beta <= alpha:
             break
     return best_move, best_score
 
 
-def alphabeta(board: BoardState, depth: int, alpha: float, beta: float, 
-              is_max: bool, is_red: bool, start_time: float, time_limit: float) -> float:
+def alphabeta(board: BoardState, depth: int, alpha: float, beta: float, is_placing: bool,
+              is_max: bool, is_red: bool, start_time: float, time_limit: float, eval_function) -> float:
     if time.perf_counter() - start_time > time_limit:
         raise TimeoutError()
 
     if depth == 0:
-        return evaluate_board(board, is_red)
+        return eval_function(board, is_red)
 
-    moves = generate_possible_moves(board, is_placing=False, is_max=is_max, is_red=is_red)
+    moves = generate_possible_moves(board, is_placing=is_placing, is_max=is_max, is_red=is_red)
     if is_max:
         max_eval = float('-inf')
         for move in moves:
             new_board = execute_move(board, move, is_red)
             # Current is MAX level, flip to MIN level for next
-            eval = alphabeta(new_board, depth - 1, alpha, beta, False, not is_red, start_time, time_limit)
+            eval = alphabeta(new_board, depth - 1, alpha, beta, is_placing, False, not is_red, start_time, time_limit, eval_function)
             max_eval = max(max_eval, eval)
             alpha = max(alpha, eval)
             if beta <= alpha:
@@ -91,7 +99,7 @@ def alphabeta(board: BoardState, depth: int, alpha: float, beta: float,
         for move in moves:
             new_board = execute_move(board, move, is_red)
             # Current is MIN level, flip to MAX level for next
-            eval = alphabeta(new_board, depth - 1, alpha, beta, True, not is_red, start_time, time_limit)
+            eval = alphabeta(new_board, depth - 1, alpha, beta, is_placing, True, not is_red, start_time, time_limit, eval_function)
             min_eval = min(min_eval, eval)
             beta = min(beta, eval)
             if beta <= alpha:
@@ -99,13 +107,11 @@ def alphabeta(board: BoardState, depth: int, alpha: float, beta: float,
         return min_eval
 
 
-def generate_possible_moves(board: BoardState, is_placing: bool,is_max: bool, is_red: bool) -> list[int]:
+def generate_possible_moves(board: BoardState, is_placing: bool, is_max: bool, is_red: bool) -> list[int]:
+    """Generates all possible moves for current player. If is_placing is True, only generates place moves.
+    Otherwise, generates eat, cascade, and normal moves."""
     if is_placing:
-        place_moves = []
-        for idx in range(64):
-            if board.is_empty(idx):
-                place_moves.append(pack_move(PLACE, 0, idx))
-        return place_moves
+        return generate_possible_place(board, is_red)
         
     eat_moves = []
     cascade_moves = []
@@ -133,5 +139,26 @@ def generate_possible_moves(board: BoardState, is_placing: bool,is_max: bool, is
                 if target_empty or target_friendly:
                     normal_moves.append(pack_move(MOVE, start, target))
                 
-    # Combine lists: Eats first, then Cascades, then Normal Moves
+    # Eats first, then Cascades, then Normal Moves
     return eat_moves + cascade_moves + normal_moves
+
+
+def generate_possible_place(board: BoardState, is_red: bool) -> list[int]:
+    """Generates all possible place moves for current player. 
+    A place move is only valid if the cell is empty and all adjacent cells are empty."""
+    place_moves = []
+    for idx in range(64):
+        # There is an empty cell
+        if board.is_empty(idx):
+            can_place = True
+            # Check whether all adjacent cells are empty, if so, we can place a token here
+            for neighbor_idx in ADJACENT[idx].values():
+                # One of the neighbour is not friendly, we cannot place a token here
+                if not board.is_empty(neighbor_idx):
+                    if (is_red and board.is_red(neighbor_idx)) or (not is_red and board.is_blue(neighbor_idx)):
+                        continue
+                    else:
+                        can_place = False
+            if can_place:
+                place_moves.append(pack_move(PLACE, idx, idx))
+    return place_moves
