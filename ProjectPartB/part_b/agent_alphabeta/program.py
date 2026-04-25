@@ -5,7 +5,27 @@ from referee.game import PlayerColor, Coord, Direction, \
     Action, PlaceAction, MoveAction, EatAction, CascadeAction
 
 from .board import BoardState
-from .action import place, move, eat, cascade
+from .action import pack_move, execute_move, translate_to_Action
+from .search import get_best_move
+from .heuristic import naive_eval
+
+DIR_TO_OFFSET = {
+    Direction.Up: -8,
+    Direction.Down: 8,
+    Direction.Left: -1,
+    Direction.Right: 1
+}
+
+ACTION_TO_TYPE = {
+    PlaceAction: 0,
+    MoveAction: 1,
+    EatAction: 2,
+    CascadeAction: 3
+}
+
+RED = 1
+BLUE = 0
+
 
 class Agent:
     """
@@ -19,7 +39,9 @@ class Agent:
         Any setup and/or precomputation should be done here.
         """
         self._color = color
+        self.evaluate = naive_eval
         self._turn_count = 0
+        self.board = BoardState()
         match color:
             case PlayerColor.RED:
                 print("Testing: I am playing as RED (first player)")
@@ -31,9 +53,14 @@ class Agent:
         This method is called by the referee each time it is the agent's turn
         to take an action. It must always return an action object.
         """
+        root_color = RED if self._color == PlayerColor.RED else BLUE
+        time_remaining = referee.get("time_remaining")
 
-    
-        
+        if isinstance(time_remaining, (int, float)):
+            remaining = float(time_remaining)
+        else:
+            remaining = 180.0
+        return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.evaluate)
 
     def update(self, color: PlayerColor, action: Action, **referee: dict):
         """
@@ -42,25 +69,15 @@ class Agent:
         """
         if color == self._color:
             self._turn_count += 1
+        
+        start_idx = action.coord.r * 8 + action.coord.c
+        direction = getattr(action, 'direction', None)
+        offset = 0
+        if direction is not None:
+            offset = DIR_TO_OFFSET.get(direction, 0)
+        target_idx = start_idx + offset
+        action_type = ACTION_TO_TYPE[type(action)]
 
-        # There are four possible action types: PLACE, MOVE, EAT, and CASCADE.
-        # Below we check which type of action was played and print out the
-        # details of the action for demonstration purposes. You should replace
-        # this with your own logic to update your agent's internal game state.
-        # match action:
-        #     case PlaceAction(coord):
-        #         print(f"Testing: {color} played PLACE action at {coord}")
-        #     case MoveAction(coord, direction):
-        #         print(f"Testing: {color} played MOVE action:")
-        #         print(f"  Coord: {coord}")
-        #         print(f"  Direction: {direction}")
-        #     case EatAction(coord, direction):
-        #         print(f"Testing: {color} played EAT action:")
-        #         print(f"  Coord: {coord}")
-        #         print(f"  Direction: {direction}")
-        #     case CascadeAction(coord, direction):
-        #         print(f"Testing: {color} played CASCADE action:")
-        #         print(f"  Coord: {coord}")
-        #         print(f"  Direction: {direction}")
-        #     case _:
-        #         raise ValueError(f"Unknown action type: {action}")
+        move = pack_move(action_type, start_idx, target_idx)
+        self.board = execute_move(self.board, move, color == PlayerColor.RED)
+

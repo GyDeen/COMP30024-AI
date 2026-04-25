@@ -4,6 +4,9 @@ from .action import UP, DOWN, LEFT, RIGHT, PLACE, MOVE, EAT, CASCADE
 from referee.game.actions import Action
 import time
 
+RED = 1
+BLUE = 0
+
 
 # Store's all idx's adjacent positions
 ADJACENT = []
@@ -16,10 +19,10 @@ for i in range(64):
     if c < 7: neighbors[1]  = i + 1  
     ADJACENT.append(neighbors)
 
-def get_best_move(board: BoardState, is_red: bool, time_remaining: float, eval_function) -> Action:
+def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaining: float, eval_function) -> Action:
     time_limit_for_turn = min(time_remaining / 40.0, 3.0)
     is_placing = board.turn_count < 8
-    
+
     if time_remaining < 5.0:
         time_limit_for_turn = 0.2
         
@@ -35,7 +38,7 @@ def get_best_move(board: BoardState, is_red: bool, time_remaining: float, eval_f
     # Iterative Deepening Search
     for depth in range(1, max_depth + 1):
         try:
-            move, score = search_all_move(board, depth, float('-inf'), float('inf'), True, is_red, start_time, time_limit_for_turn, eval_function)
+            move, score = search_all_move(board, depth, float('-inf'), float('inf'), root_color, True, is_red, start_time, time_limit_for_turn, eval_function)
 
             best_move = move
         except TimeoutError:
@@ -50,7 +53,7 @@ def get_best_move(board: BoardState, is_red: bool, time_remaining: float, eval_f
     return translate_to_Action(best_move)
 
 
-def search_all_move(board: BoardState, depth: int, alpha: float, beta: float,
+def search_all_move(board: BoardState, depth: int, alpha: float, beta: float, root_color: int,
                     is_max: bool, is_red: bool, start_time: float, time_limit: float, eval_function):
     # No more time to go
     if time.perf_counter() - start_time > time_limit:
@@ -63,7 +66,7 @@ def search_all_move(board: BoardState, depth: int, alpha: float, beta: float,
 
     for current_move in moves:
         new_board = execute_move(board, current_move, is_red)
-        score = alphabeta(new_board, depth - 1, alpha, beta, not is_max, not is_red, start_time, time_limit, eval_function)
+        score = alphabeta(new_board, depth - 1, alpha, beta, root_color, not is_max, not is_red, start_time, time_limit, eval_function)
 
         # Update best move and score if we found a better one
         if score > best_score:
@@ -77,13 +80,13 @@ def search_all_move(board: BoardState, depth: int, alpha: float, beta: float,
     return best_move, best_score
 
 
-def alphabeta(board: BoardState, depth: int, alpha: float, beta: float,
+def alphabeta(board: BoardState, depth: int, alpha: float, beta: float, root_color: int,
               is_max: bool, is_red: bool, start_time: float, time_limit: float, eval_function) -> float:
     if time.perf_counter() - start_time > time_limit:
         raise TimeoutError()
 
     if depth == 0:
-        return eval_function(board, is_red)
+        return eval_function(board, root_color)
 
     moves = generate_possible_moves(board, is_red=is_red)
     if is_max:
@@ -91,7 +94,7 @@ def alphabeta(board: BoardState, depth: int, alpha: float, beta: float,
         for move in moves:
             new_board = execute_move(board, move, is_red)
             # Current is MAX level, flip to MIN level for next
-            eval = alphabeta(new_board, depth - 1, alpha, beta, False, not is_red, start_time, time_limit, eval_function)
+            eval = alphabeta(new_board, depth - 1, alpha, beta, root_color, False, not is_red, start_time, time_limit, eval_function)
             max_eval = max(max_eval, eval)
             alpha = max(alpha, eval)
             if beta <= alpha:
@@ -102,7 +105,7 @@ def alphabeta(board: BoardState, depth: int, alpha: float, beta: float,
         for move in moves:
             new_board = execute_move(board, move, is_red)
             # Current is MIN level, flip to MAX level for next
-            eval = alphabeta(new_board, depth - 1, alpha, beta, True, not is_red, start_time, time_limit, eval_function)
+            eval = alphabeta(new_board, depth - 1, alpha, beta, root_color, True, not is_red, start_time, time_limit, eval_function)
             min_eval = min(min_eval, eval)
             beta = min(beta, eval)
             if beta <= alpha:

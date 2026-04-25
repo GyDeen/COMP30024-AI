@@ -34,7 +34,7 @@ def translate_to_Action(packed_move: int) -> Action:
     coord = Coord(r, c)
     
     direction = None
-    offset =  start_idx - target_idx
+    offset =  target_idx - start_idx
     if offset == UP:
         direction = Direction.Up
     elif offset == DOWN:
