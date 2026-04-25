@@ -59,25 +59,23 @@ def translate_to_Action(packed_move: int) -> Action:
     raise ValueError(f"Invalid action_type {action_type} unpacked from move {packed_move}")
 
 def execute_move(board_key: BoardState, packed_move: int, is_red: bool) -> BoardState:
-    """
-    Decodes the packed integer and automatically routes it to the correct 
-    physics function. This is the only function your Minimax tree needs to call.
-    """
     action_type, start_idx, target_idx = unpack_move(packed_move)
     
     if action_type == PLACE:
-        return place(board_key, target_idx, is_red)
+        new_board = place(board_key, target_idx, is_red)
+    else:
+        offset = target_idx - start_idx
+        if action_type == MOVE:
+            new_board = move(board_key, start_idx, offset)
+        elif action_type == EAT:
+            new_board = eat(board_key, start_idx, offset)
+        elif action_type == CASCADE:
+            new_board = cascade(board_key, start_idx, offset)
+        else:
+            raise ValueError(f"Invalid action_type {action_type}")
 
-    offset = target_idx - start_idx
-    
-    if action_type == MOVE:
-        return move(board_key, start_idx, offset)
-    elif action_type == EAT:
-        return eat(board_key, start_idx, offset)
-    elif action_type == CASCADE:
-        return cascade(board_key, start_idx, offset)
-    
-    raise ValueError(f"Invalid action_type {action_type} unpacked from move {packed_move}")
+    new_board.increment_round()
+    return new_board
 
 def place(board_key: BoardState, idx: int, is_red: bool) -> BoardState:
     board = BoardState(board_key)
