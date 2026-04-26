@@ -33,6 +33,10 @@ def translate_to_Action(packed_move: int) -> Action:
     r, c = divmod(start_idx, BOARD_N)
     coord = Coord(r, c)
     
+    if action_type == PLACE:
+        return PlaceAction(coord)
+    
+    
     direction = None
     offset =  target_idx - start_idx
     if offset == UP:
@@ -46,9 +50,7 @@ def translate_to_Action(packed_move: int) -> Action:
     else:
         raise ValueError(f"Invalid offset {offset} unpacked from move {packed_move}")
 
-    if action_type == PLACE:
-        return PlaceAction(coord)
-    
+
     if action_type == MOVE:
         return MoveAction(coord, direction)
     elif action_type == EAT:

@@ -7,7 +7,7 @@ from referee.game import PlayerColor, Coord, Direction, \
 from .board import BoardState
 from .action import pack_move, execute_move, translate_to_Action
 from .search import get_best_move
-from .heuristic import naive_eval
+from .heuristic import naive_eval, eval_fortress
 
 DIR_TO_OFFSET = {
     Direction.Up: -8,
@@ -40,6 +40,7 @@ class Agent:
         """
         self._color = color
         self.evaluate = naive_eval
+        self.place_eval = eval_fortress
         self._turn_count = 0
         self.board = BoardState()
         match color:
@@ -60,6 +61,8 @@ class Agent:
             remaining = float(time_remaining)
         else:
             remaining = 180.0
+        if self.board.turn_count < 8:
+            return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval)
         return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.evaluate)
 
     def update(self, color: PlayerColor, action: Action, **referee: dict):
