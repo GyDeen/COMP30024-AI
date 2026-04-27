@@ -1,11 +1,83 @@
 from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+from referee.game import PlayerColor, Coord, Direction, \
+    Action, PlaceAction, MoveAction, EatAction, CascadeAction
 
 BOARD_N = 8
 UP, DOWN, LEFT, RIGHT = -8, 8, -1, 1
+PLACE = 0
 MOVE = 1
 EAT = 2
 CASCADE = 3
 
+
+def pack_move(action_type: int, start: int, target: int) -> int:
+    """Packs a move into a single 16-bit integer.
+    Format: [2 bits action][6 bits start][6 bits target]"""
+    return (action_type << 12) | (start << 6) | target
+
+def unpack_move(packed_move: int) -> tuple[int, int, int]:
+    """
+    Unpacks a 16-bit integer back into (action_type, start, target).
+    """
+    target = packed_move & 0b111111
+    start = (packed_move >> 6) & 0b111111
+    action_type = (packed_move >> 12) & 0b11
+
+    return action_type, start, target
+
+def translate_to_Action(packed_move: int) -> Action:
+    """
+    Translates a packed move into an Action object for the referee.
+    """
+    action_type, start_idx, target_idx = unpack_move(packed_move)
+    r, c = divmod(start_idx, BOARD_N)
+    coord = Coord(r, c)
+    
+    if action_type == PLACE:
+        return PlaceAction(coord)
+    
+    
+    direction = None
+    offset =  target_idx - start_idx
+    if offset == UP:
+        direction = Direction.Up
+    elif offset == DOWN:
+        direction = Direction.Down
+    elif offset == LEFT:
+        direction = Direction.Left
+    elif offset == RIGHT:
+        direction = Direction.Right
+    else:
+        raise ValueError(f"Invalid offset {offset} unpacked from move {packed_move}")
+
+
+    if action_type == MOVE:
+        return MoveAction(coord, direction)
+    elif action_type == EAT:
+        return EatAction(coord, direction)
+    elif action_type == CASCADE:
+        return CascadeAction(coord, direction)
+
+    raise ValueError(f"Invalid action_type {action_type} unpacked from move {packed_move}")
+
+def execute_move(board_key: BoardState, packed_move: int, is_red: bool) -> BoardState:
+    action_type, start_idx, target_idx = unpack_move(packed_move)
+    
+    if action_type == PLACE:
+        new_board = place(board_key, target_idx, is_red)
+    else:
+        offset = target_idx - start_idx
+        if action_type == MOVE:
+            new_board = move(board_key, start_idx, offset)
+        elif action_type == EAT:
+            new_board = eat(board_key, start_idx, offset)
+        elif action_type == CASCADE:
+            new_board = cascade(board_key, start_idx, offset)
+        else:
+            raise ValueError(f"Invalid action_type {action_type}")
+
+    new_board.increment_round()
+    return new_board
 
 def place(board_key: BoardState, idx: int, is_red: bool) -> BoardState:
     board = BoardState(board_key)
