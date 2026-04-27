@@ -108,11 +108,3 @@ def is_valid_coord(idx, offset):
     if offset == LEFT:  return c > 0
     if offset == RIGHT: return c < 7
     return False
-    
-    
-    
-    
-    
-    
-    
-    
