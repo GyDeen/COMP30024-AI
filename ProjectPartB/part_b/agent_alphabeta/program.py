@@ -1,13 +1,13 @@
 # COMP30024 Artificial Intelligence, Semester 1 2026
 # Project Part B: Game Playing Agent
 
-from referee.game import PlayerColor, Coord, Direction, \
+from referee.game import PlayerColor, Direction, \
     Action, PlaceAction, MoveAction, EatAction, CascadeAction
 
 from .board import BoardState
-from .action import pack_move, execute_move, translate_to_Action
+from .action import pack_move, execute_move
 from .search import get_best_move
-from .heuristic import naive_eval, eval_fortress
+from .heuristic import eval_phalanx_1, eval_fortress
 
 DIR_TO_OFFSET = {
     Direction.Up: -8,
@@ -39,7 +39,7 @@ class Agent:
         Any setup and/or precomputation should be done here.
         """
         self._color = color
-        self.evaluate = naive_eval
+        self.evaluate = eval_phalanx_1
         self.place_eval = eval_fortress
         self._turn_count = 0
         self.board = BoardState()

@@ -1,11 +1,13 @@
 from .board import BoardState
 from .action import pack_move, translate_to_Action, execute_move
-from .action import UP, DOWN, LEFT, RIGHT, PLACE, MOVE, EAT, CASCADE
+from .action import PLACE, MOVE, EAT, CASCADE
 from referee.game.actions import Action
 import time
 
 RED = 1
 BLUE = 0
+
+
 
 
 # Store's all idx's adjacent positions
@@ -42,6 +44,7 @@ def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaini
 
             best_move = move
         except TimeoutError:
+            print(f"Depth {depth} search timed out. Returning best move found at depth {depth - 1}.")
             break
     
     # If we couldn't finished searching in even depth of 1, we randomly pick one from a possible move
@@ -86,7 +89,7 @@ def alphabeta(board: BoardState, depth: int, alpha: float, beta: float, root_col
         raise TimeoutError()
 
     if depth == 0:
-        return eval_function(board, root_color)
+        return eval_function(board, root_color, is_red)
 
     moves = generate_possible_moves(board, is_red=is_red)
     if is_max:
