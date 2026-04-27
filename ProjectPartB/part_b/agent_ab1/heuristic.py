@@ -209,19 +209,19 @@ def get_eval_fun1(board: BoardState, root_color: int, is_current_turn_red: bool)
     return features
 
 
-def eval_phalanx_1(board: BoardState, root_color: int, is_current_turn_red: bool) -> float:
+def eval_phalanx_0(board: BoardState, root_color: int, is_current_turn_red: bool) -> float:
     """Balanced evaluation for playing phase, with moderate emphasis on all aspects."""
     features = get_eval_fun1(board, root_color, is_current_turn_red)
     return (features['material'] * 0.20) + (features['safety'] * 0.20) + (features['positioning'] * 0.20) + \
            (features['alignment'] * 0.20) + (features['efficiency'] * 0.20)
 
-def eval_phalanx_2(board: BoardState, root_color: int, is_current_turn_red: bool) -> float:
+def eval_phalanx_1(board: BoardState, root_color: int, is_current_turn_red: bool) -> float:
     """Aggresive evaluation for playing phase. Focus more on eliminating opponent's token while maintain own material advantage."""
     features = get_eval_fun1(board, root_color, is_current_turn_red)
     return (features['material'] * 0.40) + (features['safety'] * 0.25) + (features['positioning'] * 0.15) + \
            (features['alignment'] * 0.15) + (features['efficiency'] * 0.10)
 
-def eval_phalanx_3(board: BoardState, root_color: int, is_current_turn_red: bool) -> float:
+def eval_phalanx_2(board: BoardState, root_color: int, is_current_turn_red: bool) -> float:
     """Defensive evaluation for playing phase. Focus more on maintaining own material advantage and safety."""
     features = get_eval_fun1(board, root_color, is_current_turn_red)
     return (features['material'] * 0.30) + (features['safety'] * 0.30) + (features['positioning'] * 0.20) + \
@@ -229,7 +229,7 @@ def eval_phalanx_3(board: BoardState, root_color: int, is_current_turn_red: bool
 
 """Placing phase evaluation functions"""
 
-def normalized_aspects(board: BoardState, root_color: int) -> tuple[float, float, float, float]:
+def eval_place0(board: BoardState, root_color: int) -> tuple[float, float, float, float]:
     """Returns (Material, Centrality, Support, Aggression) all scaled from 0 to 100."""
     friendly = []
     enemies = []
@@ -282,26 +282,26 @@ def normalized_aspects(board: BoardState, root_color: int) -> tuple[float, float
     return material, centrality, support, aggression
 
 
-def eval_fortress(board: BoardState, root_color: int, is_red: bool) -> float:
+def eval_place_co0(board: BoardState, root_color: int, is_red: bool) -> float:
     """Defensive evaluation for placing phase, focused on building a strong fortress."""
-    mat, cen, sup, agg = normalized_aspects(board, root_color)
+    mat, cen, sup, agg = eval_place0(board, root_color)
     
     # Calculate weighted final score
     score = (mat * 0.40) + (cen * 0.40) + (sup * 0.20) + (agg * 0.00)
     return score
 
-def eval_stalker(board: BoardState, root_color: int, is_red: bool) -> float:
+def eval_place_co1(board: BoardState, root_color: int, is_red: bool) -> float:
     """Aggressive evaluation for placing phase, focused on threatening the opponent."""
-    mat, cen, sup, agg = normalized_aspects(board, root_color)
+    mat, cen, sup, agg = eval_place0(board, root_color)
     
     # Calculate weighted final score
     score = (mat * 0.40) + (cen * 0.10) + (sup * 0.00) + (agg * 0.50)
     return score
 
-def eval_balanced(board: BoardState, root_color: int, is_red: bool) -> float:
+def eval_place_co2(board: BoardState, root_color: int, is_red: bool) -> float:
     """Balanced evaluation for placing phase, with moderate emphasis on both defense and aggression."""
-    mat, cen, sup, agg = normalized_aspects(board, root_color)
-    
+    mat, cen, sup, agg = eval_place0(board, root_color)
+
     # Calculate weighted final score
     score = (mat * 0.40) + (cen * 0.25) + (sup * 0.20) + (agg * 0.15)
     return score
