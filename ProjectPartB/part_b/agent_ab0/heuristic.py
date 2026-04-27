@@ -1,5 +1,5 @@
-from agent_alphabeta.board import BoardState
-from agent_alphabeta.search import ADJACENT
+from .board import BoardState
+from .search import ADJACENT
 
 RED = 1
 BLUE = 0
@@ -263,7 +263,7 @@ def eval_place0(board: BoardState, root_color: int) -> tuple[float, float, float
             r1, c1 = divmod(friendly[i], 8)
             r2, c2 = divmod(friendly[j], 8)
             dist = abs(r1 - r2) + abs(c1 - c2)
-            if dist == 2 or dist == 3:
+            if 1 <= dist <= 2:
                 support_pairs += 1
     support = (min(support_pairs, 6) / 6.0) * 100.0
 
