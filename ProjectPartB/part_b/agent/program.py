@@ -27,6 +27,7 @@ INV_DIR_MAP = {v: k for k, v in DIR_MAP.items()}
 PLACEMENT_TURNS = 8
 INF = 999999
 EVAL_TEMPERATURE = 8.0
+RECENT_POSITION_WINDOW = 12
 
 
 # ──────────────────────────────────────────────
@@ -97,6 +98,26 @@ def apply_action(board, action_type, start_idx, offset):
     elif action_type == EAT: return eat(board, start_idx, offset)
     elif action_type == CASCADE: return cascade(board, start_idx, offset)
     return board
+
+
+def board_signature(board, is_red_turn):
+    return (bytes(board.state), is_red_turn)
+
+
+def opposite_offset(offset):
+    if offset == UP: return DOWN
+    if offset == DOWN: return UP
+    if offset == LEFT: return RIGHT
+    return LEFT
+
+
+def reverse_of_last_move(action, last_action):
+    if last_action is None:
+        return False
+    if action[0] != MOVE or last_action[0] != MOVE:
+        return False
+    last_dest = last_action[1] + last_action[2]
+    return action[1] == last_dest and action[2] == opposite_offset(last_action[2])
 
 
 # ──────────────────────────────────────────────
@@ -236,6 +257,61 @@ def tactical_decision(board, is_red):
     return None
 
 
+def root_progress_score(board, is_red, action):
+    """
+    Reward moves that help convert a winning taller-stack endgame and
+    penalize sideways repetition.
+    """
+    my_flag = RED_FLAG if is_red else BLUE_FLAG
+    opp_flag = BLUE_FLAG if is_red else RED_FLAG
+    my_before = board.red_tokens if is_red else board.blue_tokens
+    opp_before = board.blue_tokens if is_red else board.red_tokens
+    nb = apply_action(board, action[0], action[1], action[2])
+    my_after = nb.red_tokens if is_red else nb.blue_tokens
+    opp_after = nb.blue_tokens if is_red else nb.red_tokens
+
+    captured = opp_before - opp_after
+    self_loss = my_before - my_after
+
+    my_stacks = []
+    opp_stacks = []
+    my_stacks_after = []
+    opp_stacks_after = []
+    for idx in range(64):
+        v = board.state[idx]
+        if v:
+            h = v & HEIGHT_MASK
+            if v & my_flag: my_stacks.append((idx, h))
+            elif v & opp_flag: opp_stacks.append((idx, h))
+        nv = nb.state[idx]
+        if nv:
+            nh = nv & HEIGHT_MASK
+            if nv & my_flag: my_stacks_after.append((idx, nh))
+            elif nv & opp_flag: opp_stacks_after.append((idx, nh))
+
+    my_max_before = max((h for _, h in my_stacks), default=0)
+    opp_max_before = max((h for _, h in opp_stacks), default=0)
+    my_max_after = max((h for _, h in my_stacks_after), default=0)
+    opp_max_after = max((h for _, h in opp_stacks_after), default=0)
+
+    pressure_gain = 0.0
+    if my_max_before > opp_max_before and my_stacks and opp_stacks:
+        big_before = max(my_stacks, key=lambda x: x[1])[0]
+        nearest_before = min(
+            (MANHATTAN[big_before][oi] for oi, oh in opp_stacks if my_max_before > oh),
+            default=8
+        )
+        if my_stacks_after and opp_stacks_after and my_max_after > opp_max_after:
+            big_after = max(my_stacks_after, key=lambda x: x[1])[0]
+            nearest_after = min(
+                (MANHATTAN[big_after][oi] for oi, oh in opp_stacks_after if my_max_after > oh),
+                default=8
+            )
+            pressure_gain += (nearest_before - nearest_after) * 3.5
+
+    return captured * 12.0 - self_loss * 9.0 + pressure_gain
+
+
 # ──────────────────────────────────────────────
 # Eval → [0, 1]
 # ──────────────────────────────────────────────
@@ -318,67 +394,103 @@ class MCTSSearcher:
     def __init__(self, c_param=0.7):
         self.c_param = c_param
 
+    def choose_final_child(self, root, is_red_turn, recent_positions=None, last_action=None):
+        best = None
+        best_score = -INF
+        total_visits = max(1, root.visits)
+        for child in root.children:
+            if child.visits == 0:
+                continue
+            win_rate = 1.0 - (child.value / child.visits)
+            visit_share = child.visits / total_visits
+            progress = root_progress_score(root.board, is_red_turn, child.action)
+            penalty = 0.0
+            if recent_positions is not None and board_signature(child.board, not is_red_turn) in recent_positions:
+                penalty += 10.0
+            if reverse_of_last_move(child.action, last_action):
+                penalty += 6.0
+            score = win_rate * 100.0 + visit_share * 6.0 + progress - penalty
+            if score > best_score:
+                best_score = score
+                best = child
+        return best if best is not None else root.most_visited_child()
+
     def _filter_root_actions(self, board, is_red, actions):
         """
-        Filter out CASCADE actions at the root that are pointless or dangerous.
-        A cascade is only allowed if:
-          - It destroys more opponent tokens than it costs us, AND
-          - Our resulting h=1 stacks are not within 3 cells of any enemy
-            (unless the gain is huge, >= 3 net tokens)
+        Filter out clearly bad actions at the root:
         
-        This is a HARD filter at the root only. Child nodes in the tree
-        are not filtered (different positions, opponent's cascades are fine).
+        1. CASCADE: only if net gain > 0 and debris is safe (existing logic)
+        2. MOVE suicide: if we have ≤2 stacks, don't move a stack adjacent
+           to an enemy of equal-or-greater height (they eat us next turn).
+           EXCEPTION: if we're strictly taller, we eat THEM — that's safe.
+        
+        This prevents MCTS from exploring suicidal lines that waste sims.
         """
         my_flag = RED_FLAG if is_red else BLUE_FLAG
         opp_flag = BLUE_FLAG if is_red else RED_FLAG
         my_before = board.red_tokens if is_red else board.blue_tokens
         opp_before = board.blue_tokens if is_red else board.red_tokens
+        state = board.state
+
+        # Count our stacks
+        my_stack_count = sum(1 for i in range(64) if state[i] and (state[i] & my_flag))
 
         filtered = []
         for act in actions:
-            if act[0] != CASCADE:
+            # ── CASCADE filter (existing) ──
+            if act[0] == CASCADE:
+                nb = apply_action(board, act[0], act[1], act[2])
+                my_after = nb.red_tokens if is_red else nb.blue_tokens
+                opp_after = nb.blue_tokens if is_red else nb.red_tokens
+                net = (opp_before - opp_after) - (my_before - my_after)
+                if net <= 0: continue
+                if net < 3:
+                    debris_near_enemy = False
+                    for ci in range(64):
+                        cv = nb.state[ci]
+                        if cv and (cv & my_flag) and (cv & HEIGHT_MASK) == 1:
+                            for oi in range(64):
+                                ov = nb.state[oi]
+                                if ov and (ov & opp_flag) and MANHATTAN[ci][oi] <= 3:
+                                    debris_near_enemy = True; break
+                            if debris_near_enemy: break
+                    if debris_near_enemy: continue
                 filtered.append(act)
                 continue
 
-            # Simulate the cascade
-            nb = apply_action(board, act[0], act[1], act[2])
-            my_after = nb.red_tokens if is_red else nb.blue_tokens
-            opp_after = nb.blue_tokens if is_red else nb.red_tokens
-            opp_destroyed = opp_before - opp_after
-            my_lost = my_before - my_after
-            net = opp_destroyed - my_lost
+            # ── MOVE suicide filter (only when few stacks) ──
+            if act[0] == MOVE and my_stack_count <= 2:
+                src = act[1]
+                src_h = state[src] & HEIGHT_MASK
+                dest = src + act[2]
 
-            # Rule 1: Must destroy something (net > 0)
-            if net <= 0:
-                continue  # pointless cascade — remove
-
-            # Rule 2: If net gain is modest (< 3), check safety
-            if net < 3:
-                # Count our h=1 stacks near enemies
-                debris_near_enemy = False
-                for ci in range(64):
-                    cv = nb.state[ci]
-                    if not cv or not (cv & my_flag): continue
-                    ch = cv & HEIGHT_MASK
-                    if ch > 1: continue  # only worry about h=1 debris
-                    for oi in range(64):
-                        ov = nb.state[oi]
-                        if not ov or not (ov & opp_flag): continue
-                        if MANHATTAN[ci][oi] <= 3:
-                            debris_near_enemy = True
+                # Check if destination is adjacent to an enemy that can eat us
+                landing_threatened = False
+                for off in OFFSETS:
+                    if not is_valid_coord(dest, off): continue
+                    nv = state[dest + off]
+                    if nv and (nv & opp_flag):
+                        nh = nv & HEIGHT_MASK
+                        if nh >= src_h:
+                            # This includes merges: check if we'd be taller after
+                            # moving onto a friendly stack
+                            dest_val = state[dest]
+                            if dest_val and (dest_val & my_flag):
+                                # Merging: combined height
+                                merged_h = src_h + (dest_val & HEIGHT_MASK)
+                                if merged_h > nh:
+                                    continue  # merge makes us taller — safe
+                            landing_threatened = True
                             break
-                    if debris_near_enemy: break
 
-                if debris_near_enemy:
-                    continue  # R1 debris near enemy — too risky
+                if landing_threatened:
+                    continue  # skip this suicidal move
 
-            # Passed all checks
             filtered.append(act)
 
-        # Never filter ALL actions
         return filtered if filtered else actions
 
-    def search(self, board, is_red_turn, time_budget):
+    def search(self, board, is_red_turn, time_budget, recent_positions=None, last_action=None):
         forced = tactical_decision(board, is_red_turn)
         if forced is not None:
             return forced, 1, 1
@@ -414,7 +526,7 @@ class MCTSSearcher:
 
         if not root.children:
             return (all_actions[0], 0, simulations)
-        best = root.most_visited_child()
+        best = self.choose_final_child(root, is_red_turn, recent_positions, last_action)
         return best.action, best.visits, simulations
 
 
@@ -498,6 +610,8 @@ class Agent:
         self._searcher = MCTSSearcher(c_param=0.7)
         self._position_history = []
         self._total_time_used = 0.0
+        self._recent_positions = []
+        self._last_my_action = None
 
     def action(self, **referee: dict) -> Action:
         turn_start = time.process_time()
@@ -531,7 +645,10 @@ class Agent:
 
         # ── MCTS search ──
         best, visits, sims = self._searcher.search(
-            self._board, self._is_red, budget)
+            self._board, self._is_red, budget,
+            recent_positions=set(self._recent_positions),
+            last_action=self._last_my_action,
+        )
 
         if best is None:
             actions = generate_actions_flat(self._board, self._is_red)
@@ -558,6 +675,7 @@ class Agent:
         # ── Track time ──
         elapsed = time.process_time() - turn_start
         self._total_time_used += elapsed
+        self._last_my_action = best
 
         return action_tuple_to_action(best[0], best[1], best[2])
 
@@ -578,3 +696,7 @@ class Agent:
         # Record positions during play phase for repetition detection
         if self._placement_count >= PLACEMENT_TURNS:
             self._position_history.append(bytes(self._board.state))
+            if color != self._color:
+                self._recent_positions.append(board_signature(self._board, self._is_red))
+                if len(self._recent_positions) > RECENT_POSITION_WINDOW:
+                    self._recent_positions.pop(0)

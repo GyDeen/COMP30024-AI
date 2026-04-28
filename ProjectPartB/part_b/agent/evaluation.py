@@ -19,6 +19,7 @@ KEY FIXES FROM v7:
   1. Game-phase multipliers on survival vs elimination weights
   2. Much stronger penalty for h=1 stacks near enemies (anti-cascade-debris)
   3. Height preservation bonus (tall stacks are strategically superior)
+  4. Winning tall-stack endgames should convert instead of repeating
 """
 from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
 from .action import is_valid_coord, UP, DOWN, LEFT, RIGHT
@@ -89,23 +90,32 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
     late_factor = max(0.0, 1.0 - total / 16.0)  # 0.0 early, ~0.5 mid, ~1.0 late
 
     # Survival multiplier: how much to weight keeping our stacks alive
-    # Early game or losing: high. Late winning: low.
-    if advantage < -0.1:
-        # We're losing: survival is critical
-        survival_weight = 1.5 + late_factor * 0.5  # 1.5 to 2.0
-    elif advantage > 0.2:
-        # We're winning: focus on elimination
-        survival_weight = 0.8 - late_factor * 0.3  # 0.8 to 0.5
-    else:
-        # Close game: balanced
-        survival_weight = 1.0
+    # CRITICAL: when we're the last stack, survival IS the game.
+    # Losing our only stack = instant loss. Penalty must dominate all else.
+    my_stack_n = len(my_stacks)
+    opp_stack_n = len(opp_stacks)
+    
+    my_max_h = max((h for _, h in my_stacks), default=0)
+    opp_max_h = max((h for _, h in opp_stacks), default=0)
 
-    # Elimination multiplier: how aggressively to pursue kills
-    if advantage > 0.2:
-        elimination_weight = 1.5 + late_factor * 0.5
+    if my_stack_n <= 1:
+        # Usually survival dominates when we only have one stack.
+        # But if that lone stack is already taller than theirs, or we are
+        # ahead in a late endgame, we want to press the win rather than loop.
+        if my_max_h > opp_max_h or (advantage > 0.08 and late_factor > 0.35):
+            survival_weight = 1.2
+            elimination_weight = 2.0 + late_factor * 0.8
+        else:
+            survival_weight = 3.0
+            elimination_weight = 0.3  # barely approach unless safe
     elif advantage < -0.1:
+        survival_weight = 1.5 + late_factor * 0.5
         elimination_weight = 0.6
+    elif advantage > 0.2:
+        survival_weight = 0.8 - late_factor * 0.3
+        elimination_weight = 1.5 + late_factor * 0.5
     else:
+        survival_weight = 1.0
         elimination_weight = 1.0
 
     # ── 1. MATERIAL ──────────────────────────────────────
@@ -113,19 +123,37 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
     material_ratio = material_diff / total
 
     # ── 2. HEIGHT-WEIGHTED PROXIMITY ─────────────────────
+    # Only reward approaching enemies we can SAFELY eat.
+    # "Safely" means strictly taller (we eat them, they can't eat us back).
+    # Equal height approach is risky — opponent eats us if they move first.
+    # When losing, reduce approach incentive for equal-height targets.
     proximity = 0.0
     for mi, mh in my_stacks:
         for oi, oh in opp_stacks:
-            if mh >= oh:
+            if mh > oh:
+                # Strictly taller: safe approach — full proximity bonus
                 surplus = mh - oh
                 d = MANHATTAN[mi][oi]
                 dist_bonus = max(0, 8 - d)
                 proximity += (1 + surplus) * dist_bonus * 0.3
+            elif mh == oh and advantage > 0.1:
+                # Equal height AND we're winning: moderate approach
+                # (we can afford the trade)
+                d = MANHATTAN[mi][oi]
+                dist_bonus = max(0, 8 - d)
+                proximity += dist_bonus * 0.1
+            # Equal height while losing: NO proximity bonus
+            # (approaching equal-height enemy = potential suicide)
 
     # ── 3. IMMEDIATE THREATS ─────────────────────────────
-    # Adjacent enemy that can eat us = imminent loss.
-    # But EQUAL height is less dangerous — it's a mutual threat.
-    # Strictly taller enemy is the real danger (they eat us, we can't eat back).
+    # Adjacent enemy that can eat us.
+    #
+    # CRITICAL: When we have only 1-2 stacks, EVERY stack loss is
+    # catastrophic. Equal-height adjacent enemy = they eat us on their
+    # turn and we may lose everything. Penalty must be massive.
+    #
+    # When we have many stacks, equal-height is less scary (losing one
+    # stack is not fatal, and we might eat them first).
     my_threatened = 0.0
     opp_threatened = 0.0
     for mi, mh in my_stacks:
@@ -135,13 +163,22 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
             if nb_val and (nb_val & opp_flag):
                 nb_h = nb_val & HEIGHT_MASK
                 if nb_h > mh:
-                    worst_threat = 2; break  # strictly taller = real danger
-                elif nb_h == mh and worst_threat < 1:
-                    worst_threat = 1  # equal = mutual threat
+                    worst_threat = 2; break
+                elif nb_h >= mh and worst_threat < 1:
+                    worst_threat = 1
         if worst_threat == 2:
-            my_threatened += mh        # full penalty
+            my_threatened += mh        # strictly taller = full penalty
         elif worst_threat == 1:
-            my_threatened += mh * 0.3  # mild penalty (we can eat back)
+            # Equal height penalty depends on how many stacks we have.
+            # 1 stack: losing it = total elimination → treat as full threat
+            # 2 stacks: very dangerous → 80% penalty
+            # 3+ stacks: manageable → 30% penalty
+            if my_stack_n <= 1:
+                my_threatened += mh * 1.5  # EXTRA penalty: this is everything
+            elif my_stack_n == 2:
+                my_threatened += mh * 0.8
+            else:
+                my_threatened += mh * 0.3
 
     for oi, oh in opp_stacks:
         worst_threat = 0
@@ -151,12 +188,17 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
                 nb_h = nb_val & HEIGHT_MASK
                 if nb_h > oh:
                     worst_threat = 2; break
-                elif nb_h == oh and worst_threat < 1:
+                elif nb_h >= oh and worst_threat < 1:
                     worst_threat = 1
         if worst_threat == 2:
             opp_threatened += oh
         elif worst_threat == 1:
-            opp_threatened += oh * 0.3
+            if opp_stack_n <= 1:
+                opp_threatened += oh * 1.5
+            elif opp_stack_n == 2:
+                opp_threatened += oh * 0.8
+            else:
+                opp_threatened += oh * 0.3
 
     # ── 4. CASCADE DEBRIS PENALTY ────────────────────────
     # h=1 stacks near ANY enemy (not just adjacent) are easy kills.
@@ -201,9 +243,6 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
             opp_debris_penalty += 1.0
 
     # ── 5. HEIGHT DOMINANCE & PRESERVATION ───────────────
-    opp_max_h = max((h for _, h in opp_stacks), default=0)
-    my_max_h = max((h for _, h in my_stacks), default=0)
-
     my_dominant = sum(1 for _, h in my_stacks if h > opp_max_h)
     opp_dominant = sum(1 for _, h in opp_stacks if h > my_max_h)
     dominance = (my_dominant - opp_dominant) * 3.0
@@ -222,6 +261,23 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
     my_height_sq = sum(h * h for _, h in my_stacks)
     opp_height_sq = sum(h * h for _, h in opp_stacks)
     height_preservation = (my_height_sq - opp_height_sq) * 0.5
+
+    # ── 5b. WINNING CONVERSION BONUS ─────────────────────
+    conversion = 0.0
+    if my_max_h > opp_max_h and my_stacks and opp_stacks:
+        my_big_idx, _ = max(my_stacks, key=lambda x: x[1])
+        nearest = min(
+            (MANHATTAN[my_big_idx][oi] for oi, oh in opp_stacks if my_max_h > oh),
+            default=8
+        )
+        conversion += max(0, 8 - nearest) * (my_max_h - opp_max_h) * 1.2
+    if opp_max_h > my_max_h and my_stacks and opp_stacks:
+        opp_big_idx, _ = max(opp_stacks, key=lambda x: x[1])
+        nearest = min(
+            (MANHATTAN[opp_big_idx][mi] for mi, mh in my_stacks if opp_max_h > mh),
+            default=8
+        )
+        conversion -= max(0, 8 - nearest) * (opp_max_h - my_max_h) * 1.2
 
     # ── 6. EDGE-TRAP BONUS ───────────────────────────────
     edge_trap_bonus = 0.0
@@ -272,7 +328,7 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
     opp_safety = sum(EDGE_DIST[i] * h * 0.15 for i, h in opp_stacks)
 
     # ── 8. STRUCTURE ─────────────────────────────────────
-    mc, oc = len(my_stacks), len(opp_stacks)
+    mc, oc = my_stack_n, opp_stack_n
 
     elim = 0.0
     if oc <= 1: elim += 5.0
@@ -301,6 +357,7 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
         + dominance
         + height_adv - height_disadv
         + height_preservation
+        + conversion * elimination_weight
 
         # Edge traps (scaled by elimination weight)
         + edge_trap_bonus * elimination_weight
