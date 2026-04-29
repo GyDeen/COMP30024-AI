@@ -192,7 +192,7 @@ def eval0(board: BoardState, root_color: int, is_red: bool) -> float:
     return evaluate_board(board, root_color, is_red, 'hunt_aggressive')
 
 def eval1(board: BoardState, root_color: int, is_red: bool) -> float:
-    return evaluate_board(board, root_color, is_red, 'hunt_balanced')
+    return evaluate_board(board, root_color, is_red, 'phalanx_aggressive')
 
 # ===============================================================================
 
@@ -218,7 +218,7 @@ def eval_place0(board: BoardState, root_color: int) -> tuple[float, float, float
     # Max difference in placement is 4. Scale from -4 to +4 into 0 to 100.
     material = ((f_len - e_len + 4.0) / 8.0) * 100.0
 
-    # Average weight is between 1 (edges) and 4 (center).
+    # Average weight is between edge and center.
     if f_len > 0:
         avg_center = center_raw / f_len
         centrality = ((avg_center - 1.0) / 3.0) * 100.0
