@@ -226,6 +226,332 @@ def eval_phalanx_2(board: BoardState, root_color: int, is_current_turn_red: bool
     features = get_eval_fun1(board, root_color, is_current_turn_red)
     return (features['material'] * 0.30) + (features['safety'] * 0.30) + (features['positioning'] * 0.20) + \
            (features['alignment'] * 0.20) + (features['efficiency'] * 0.15)
+           
+"""End of board evaluation function set 2"""
+
+
+"""Board evaluation function set 3"""
+def get_eval_fun2(board: BoardState, root_color: int, is_current_turn_red: bool) -> dict:
+    features = {
+        'material': 0.0,
+        'efficiency': 0.0,
+        'alignment': 0.0,
+        'safety': 0.0,
+        'positioning': 0.0
+    }
+    
+    is_my_turn = (root_color == 1 and is_current_turn_red) or \
+                 (root_color == 0 and not is_current_turn_red)
+
+    friendly_stacks_map = {}  
+    enemy_stacks_map = {}
+    
+    # Material value and stack height
+    for cell_index in range(64):
+        if board.is_empty(cell_index): 
+            continue
+        
+        stack_height = board.get_height(cell_index)
+        is_friendly = (root_color == 1 and board.is_red(cell_index)) or \
+                      (root_color == 0 and board.is_blue(cell_index))
+        
+        if is_friendly:
+            friendly_stacks_map[cell_index] = stack_height
+            features['material'] += (stack_height * 10.0)
+            features['positioning'] += (CENTER_WEIGHTS[cell_index] * stack_height / 2)
+
+            if stack_height >= 4 and CENTER_WEIGHTS[cell_index] >= 3:
+                artillery_control_bonus = stack_height * CENTER_WEIGHTS[cell_index] * 1.5
+                features['positioning'] += artillery_control_bonus
+            
+            # Penalize for low stack heights (vulnerable to being eaten) and very high stacks (wasteful and vulnerable to cascade)
+            if stack_height == 1:
+                features['efficiency'] -= 10.0
+            elif 2 <= stack_height <= 3:
+                features['efficiency'] += 5.0   
+            elif 4 <= stack_height <= 6:
+                features['efficiency'] += 15.0  
+            elif stack_height == 7:
+                features['efficiency'] -= 15.0 
+            elif stack_height > 7:
+                # Penalize more heavily for extreme over-stacking since it is very vulnerable and cascade will result in lost of token
+                extreme_height_penalty = 30.0 + ((stack_height - 7) * 10.0)
+                features['efficiency'] -= extreme_height_penalty
+        else:
+            enemy_stacks_map[cell_index] = stack_height
+            features['material'] -= (stack_height * 10.0)
+
+            features['positioning'] -= (CENTER_WEIGHTS[cell_index] * stack_height / 2.0)
+
+            if stack_height >= 4 and CENTER_WEIGHTS[cell_index] >= 3:
+                artillery_control_penalty = stack_height * CENTER_WEIGHTS[cell_index] * 1.5
+                features['positioning'] -= artillery_control_penalty
+
+    friendly_indices = list(friendly_stacks_map.keys())
+
+    # Alignment check, make sure each other can help (Mutual Defense Range)
+    for current_item_index in range(len(friendly_indices)):
+        idx_1 = friendly_indices[current_item_index]
+        row_1, col_1 = divmod(idx_1, 8)
+        h1 = friendly_stacks_map[idx_1]
+        
+        for next_item_index in range(current_item_index + 1, len(friendly_indices)):
+            idx_2 = friendly_indices[next_item_index]
+            row_2, col_2 = divmod(idx_2, 8)
+            h2 = friendly_stacks_map[idx_2]
+            
+            # Has alignment
+            if row_1 == row_2 or col_1 == col_2:
+                distance = abs(row_1 - row_2) + abs(col_1 - col_2)
+                # If one of them gets attacked, can the other push the attacker off the board?
+                can_push_off_if_attacked = (h1 - distance > EDGE_DIST[idx_2]) or (h2 - distance > EDGE_DIST[idx_1])
+                # Can they reach each other to retaliate?
+                if can_push_off_if_attacked: 
+                    features['alignment'] += 5.0
+
+    # Check the threats from enemy stacks. We consider two main types of threats:
+    for enemy_index, enemy_height in enemy_stacks_map.items():
+        enemy_row, enemy_col = divmod(enemy_index, 8)
+        
+        for delta_row, delta_col in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            
+            # There is stack under direct attack
+            adj_row, adj_col = enemy_row + delta_row, enemy_col + delta_col
+            if 0 <= adj_row < 8 and 0 <= adj_col < 8:
+                adj_idx = adj_row * 8 + adj_col
+                if adj_idx in friendly_stacks_map:
+                    if enemy_height >= friendly_stacks_map[adj_idx]:
+                        features['safety'] -= 5.0 if is_my_turn else 50.0
+            
+            # CASCADE Push-Off-Board
+            for step_distance in range(1, enemy_height + 1):
+                target_row = enemy_row + (delta_row * step_distance)
+                target_col = enemy_col + (delta_col * step_distance)
+                
+                # If the line goes off board before hitting anything, stop checking
+                if not (0 <= target_row < 8 and 0 <= target_col < 8): 
+                    break 
+                
+                target_index = target_row * 8 + target_col
+                friendly_in_line_count = 0
+                if target_index in friendly_stacks_map:
+                    friendly_in_line_count += 1
+                    pushed_row = enemy_row + (delta_row * (enemy_height + friendly_in_line_count))
+                    pushed_col = enemy_col + (delta_col * (enemy_height + friendly_in_line_count))
+
+                    if not (0 <= pushed_row < 8 and 0 <= pushed_col < 8):
+                        threatened_height = friendly_stacks_map[target_index]
+                        if is_my_turn:
+                            features['safety'] -= (threatened_height * 2.0)
+                        else:
+                            features['safety'] -= (threatened_height * 10.0)
+                
+    return features
+
+
+def eval_updated0(board: BoardState, root_color: int, is_current_turn_red: bool) -> float:
+    """Balanced evaluation for playing phase, with moderate emphasis on all aspects."""
+    features = get_eval_fun2(board, root_color, is_current_turn_red)
+    return (features['material'] * 0.20) + (features['safety'] * 0.20) + (features['positioning'] * 0.20) + \
+           (features['alignment'] * 0.20) + (features['efficiency'] * 0.20)
+           
+def eval_updated1(board: BoardState, root_color: int, is_current_turn_red: bool) -> float:
+    """Aggresive evaluation for playing phase. Focus more on eliminating opponent's token while maintain own material advantage."""
+    features = get_eval_fun2(board, root_color, is_current_turn_red)
+    return (features['material'] * 0.40) + (features['safety'] * 0.25) + (features['positioning'] * 0.15) + \
+           (features['alignment'] * 0.15) + (features['efficiency'] * 0.10)
+
+def eval_updated2(board: BoardState, root_color: int, is_current_turn_red: bool) -> float:
+    """Defensive evaluation for playing phase. Focus more on maintaining own material advantage and safety."""
+    features = get_eval_fun2(board, root_color, is_current_turn_red)
+    return (features['material'] * 0.30) + (features['safety'] * 0.30) + (features['positioning'] * 0.20) + \
+           (features['alignment'] * 0.20) + (features['efficiency'] * 0.15)
+"""End of board evaluation function set 3"""
+
+
+"""Board evaluation function set 4"""
+def get_eval_fun3(board: BoardState, root_color: int, is_current_turn_red: bool) -> dict:
+    features = {
+        'material': 0.0,
+        'efficiency': 0.0,
+        'alignment': 0.0,
+        'safety': 0.0,
+        'positioning': 0.0,
+        'hunting': 0.0  # Tracks the endgame squeeze and positional trapping
+    }
+    
+    is_my_turn = (root_color == 1 and is_current_turn_red) or \
+                 (root_color == 0 and not is_current_turn_red)
+
+    friendly_stacks_map = {}  
+    enemy_stacks_map = {}
+    
+    # 1. Extract Material, Efficiency, and Positioning
+    for cell_index in range(64):
+        if board.is_empty(cell_index): 
+            continue
+        
+        stack_height = board.get_height(cell_index)
+        is_friendly = (root_color == 1 and board.is_red(cell_index)) or \
+                      (root_color == 0 and board.is_blue(cell_index))
+        
+        cell_center_weight = CENTER_WEIGHTS[cell_index]
+        
+        if is_friendly:
+            friendly_stacks_map[cell_index] = stack_height
+            features['material'] += (stack_height * 10.0)
+            
+            # Base linear positioning score
+            features['positioning'] += (cell_center_weight * stack_height / 2.0)
+            
+            # The Artillery Control Bonus
+            if stack_height >= 4 and cell_center_weight >= 3:
+                artillery_control_bonus = stack_height * cell_center_weight * 1.5
+                features['positioning'] += artillery_control_bonus
+            
+            # Efficiency checks
+            if stack_height == 1:
+                features['efficiency'] -= 10.0
+            elif 2 <= stack_height <= 3:
+                features['efficiency'] += 5.0   
+            elif 4 <= stack_height <= 6:
+                features['efficiency'] += 15.0  
+            elif stack_height == 7:
+                features['efficiency'] -= 15.0 
+            elif stack_height > 7:
+                # Extreme penalty for massive, wasteful stacks
+                extreme_height_penalty = 30.0 + ((stack_height - 7) * 10.0)
+                features['efficiency'] -= extreme_height_penalty
+        else:
+            enemy_stacks_map[cell_index] = stack_height
+            features['material'] -= (stack_height * 10.0)
+            
+            # Base linear positioning penalty
+            features['positioning'] -= (cell_center_weight * stack_height / 2.0)
+            
+            # The Artillery Control Penalty
+            if stack_height >= 4 and cell_center_weight >= 3:
+                artillery_control_penalty = stack_height * cell_center_weight * 1.5
+                features['positioning'] -= artillery_control_penalty
+
+    friendly_indices = list(friendly_stacks_map.keys())
+
+    # 2. Extract Alignment (Mutual Defense Range)
+    for current_item_index in range(len(friendly_indices)):
+        idx_1 = friendly_indices[current_item_index]
+        row_1, col_1 = divmod(idx_1, 8)
+        h1 = friendly_stacks_map[idx_1]
+        
+        for next_item_index in range(current_item_index + 1, len(friendly_indices)):
+            idx_2 = friendly_indices[next_item_index]
+            row_2, col_2 = divmod(idx_2, 8)
+            h2 = friendly_stacks_map[idx_2]
+            
+            if row_1 == row_2 or col_1 == col_2:
+                distance = abs(row_1 - row_2) + abs(col_1 - col_2)
+                can_push_off_if_attacked = (h1 - distance > EDGE_DIST[idx_2]) or (h2 - distance > EDGE_DIST[idx_1])
+                if can_push_off_if_attacked: 
+                    features['alignment'] += 5.0
+
+    # 3. Extract Safety (Threats and Sweeping Cascades)
+    for enemy_index, enemy_height in enemy_stacks_map.items():
+        enemy_row, enemy_col = divmod(enemy_index, 8)
+        
+        for delta_row, delta_col in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            
+            # --- Threat A: Direct EAT ---
+            adj_row, adj_col = enemy_row + delta_row, enemy_col + delta_col
+            if 0 <= adj_row < 8 and 0 <= adj_col < 8:
+                adj_idx = adj_row * 8 + adj_col
+                if adj_idx in friendly_stacks_map:
+                    if enemy_height >= friendly_stacks_map[adj_idx]:
+                        threatened_height = friendly_stacks_map[adj_idx]
+                        if is_my_turn:
+                            features['safety'] -= (threatened_height * 2.0)
+                        else:
+                            features['safety'] -= (threatened_height * 10.0)
+            
+            # --- Threat B: CASCADE Push-Off-Board ---
+            friendly_in_line_count = 0 
+            
+            for step_distance in range(1, enemy_height + 1):
+                target_row = enemy_row + (delta_row * step_distance)
+                target_col = enemy_col + (delta_col * step_distance)
+                
+                if not (0 <= target_row < 8 and 0 <= target_col < 8): 
+                    break 
+                
+                target_index = target_row * 8 + target_col
+                
+                if target_index in friendly_stacks_map:
+                    friendly_in_line_count += 1
+                    
+                    pushed_row = enemy_row + (delta_row * (enemy_height + friendly_in_line_count))
+                    pushed_col = enemy_col + (delta_col * (enemy_height + friendly_in_line_count))
+
+                    if not (0 <= pushed_row < 8 and 0 <= pushed_col < 8):
+                        threatened_height = friendly_stacks_map[target_index]
+                        if is_my_turn:
+                            features['safety'] -= (threatened_height * 2.0)
+                        else:
+                            features['safety'] -= (threatened_height * 10.0)
+
+    # Try to squeeze enemy stacks
+    MAX_DIST = 14.0
+
+    for f_idx, f_h in friendly_stacks_map.items():
+        fr, fc = divmod(f_idx, 8)
+        
+        for e_idx, e_h in enemy_stacks_map.items():
+            er, ec = divmod(e_idx, 8)
+            dist = abs(fr - er) + abs(fc - ec)
+            
+            size_diff = f_h - e_h
+            
+            # We are larger than enemy
+            if size_diff > 0:
+                # Close the gap relentlessly
+                features['hunting'] += (MAX_DIST - dist) * size_diff
+                
+            # We are the same size. Try to stay diagonally adjacent to restrict their movement and set up for a future attack.
+            elif size_diff == 0:
+                # Stalking phase
+                if dist == 1:
+                    # Suicide to step adjacent
+                    features['hunting'] -= 30.0 
+                elif dist == 2:
+                    dx = abs(fr - er)
+                    dy = abs(fc - ec)
+                    
+                    if dx == 1 and dy == 1:
+                        # THE HARD PIN (Diagonal): Traps two movement directions!
+                        features['hunting'] += (MAX_DIST - dist) * 3.0 
+              
+            # We are smaller, try to stay away      
+            elif size_diff < 0:
+                features['hunting'] -= (MAX_DIST - dist) * abs(size_diff)
+
+    return features
+
+def eval_hunt0(board: BoardState, root_color: int, is_red: bool) -> float:
+    """Aggressive evaluation for playing phase, with strong emphasis on the endgame hunting and squeezing."""
+    features = get_eval_fun3(board, root_color, is_current_turn_red=True)
+    return (features['material'] * 0.25) + (features['safety'] * 0.15) + (features['alignment'] * 0.20) + \
+           (features['efficiency'] * 0.15) + (features['positioning'] * 0.10) + (features['hunting'] * 0.15)
+
+def eval_hunt1(board: BoardState, root_color: int, is_red: bool) -> float:
+    """Balanced evaluation for playing phase, with moderate emphasis on the endgame hunting and squeezing."""
+    features = get_eval_fun3(board, root_color, is_current_turn_red=True)
+    return (features['material'] * 0.30) + (features['safety'] * 0.20) + (features['alignment'] * 0.20) + \
+           (features['efficiency'] * 0.15) + (features['positioning'] * 0.10) + (features['hunting'] * 0.15)
+           
+def eval_hunt2(board: BoardState, root_color: int, is_red: bool) -> float:
+    """Defensive evaluation for playing phase, with moderate emphasis on the endgame hunting and squeezing."""
+    features = get_eval_fun3(board, root_color, is_current_turn_red=True)
+    return (features['material'] * 0.30) + (features['safety'] * 0.25) + (features['alignment'] * 0.15) + \
+           (features['efficiency'] * 0.10) + (features['positioning'] * 0.20) + (features['hunting'] * 0.0)
+
+"""End of board evaluation function set 4"""
 
 """Placing phase evaluation functions"""
 
