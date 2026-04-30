@@ -21,7 +21,7 @@ for i in range(64):
     if c < 7: neighbors[1]  = i + 1  
     ADJACENT.append(neighbors)
 
-def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaining: float, eval_function) -> Action:
+def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaining: float, eval_function, tt: dict) -> Action:
     time_limit_for_turn = min(time_remaining / 40.0, 3.0)
     is_placing = board.turn_count < 8
 
@@ -40,7 +40,7 @@ def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaini
     # Iterative Deepening Search
     for depth in range(1, max_depth + 1):
         try:
-            move, score = search_all_move(board, depth, float('-inf'), float('inf'), root_color, True, is_red, start_time, time_limit_for_turn, eval_function)
+            move, score = search_all_move(board, depth, float('-inf'), float('inf'), root_color, True, is_red, start_time, time_limit_for_turn, eval_function, tt)
 
             best_move = move
         except TimeoutError:
@@ -57,7 +57,7 @@ def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaini
 
 
 def search_all_move(board: BoardState, depth: int, alpha: float, beta: float, root_color: int,
-                    is_max: bool, is_red: bool, start_time: float, time_limit: float, eval_function):
+                    is_max: bool, is_red: bool, start_time: float, time_limit: float, eval_function, tt: dict):
     # No more time to go
     if time.perf_counter() - start_time > time_limit:
         raise TimeoutError()
@@ -66,10 +66,17 @@ def search_all_move(board: BoardState, depth: int, alpha: float, beta: float, ro
     best_move = None
     best_score = float('-inf')
     moves = generate_possible_moves(board, is_red=is_red)
+    
+    board_key = (board.get_hashable(), is_max)
+    if board_key in tt:
+        _, _, _, entry_move = tt[board_key]
+        if entry_move is not None and entry_move in moves:
+            moves.remove(entry_move)
+            moves.insert(0, entry_move)
 
     for current_move in moves:
         new_board = execute_move(board, current_move, is_red)
-        score = alphabeta(new_board, depth - 1, alpha, beta, root_color, not is_max, not is_red, start_time, time_limit, eval_function)
+        score = alphabeta(new_board, depth - 1, alpha, beta, root_color, not is_max, not is_red, start_time, time_limit, eval_function, tt)
 
         # Update best move and score if we found a better one
         if score > best_score:
@@ -80,40 +87,92 @@ def search_all_move(board: BoardState, depth: int, alpha: float, beta: float, ro
         alpha = max(alpha, best_score)
         if beta <= alpha:
             break
+        
+    tt[board_key] = (best_score, depth, 0, best_move)
     return best_move, best_score
 
 
 def alphabeta(board: BoardState, depth: int, alpha: float, beta: float, root_color: int,
-              is_max: bool, is_red: bool, start_time: float, time_limit: float, eval_function) -> float:
+              is_max: bool, is_red: bool, start_time: float, time_limit: float, eval_function, tt: dict) -> float:
     if time.perf_counter() - start_time > time_limit:
         raise TimeoutError()
-
+    
     if depth == 0:
         return eval_function(board, root_color, is_red)
+    
+    original_alpha = alpha
+    original_beta = beta
+    board_key = (board.get_hashable(), is_max)
+    cached_best_move = None
 
+    if board_key in tt:
+        entry_score, entry_depth, entry_flag, entry_move = tt[board_key]
+        cached_best_move = entry_move
+        
+        if entry_depth >= depth:
+            # It is the same as previous search, we can directly return the score
+            if entry_flag == 0: 
+                return entry_score
+            # The board is a gauranteed lower bound with possible higher value, we can update alpha
+            elif entry_flag == 1:
+                alpha = max(alpha, entry_score)
+            # The board is a gauranteed upper bound with possible lower value, we can update beta
+            elif entry_flag == 2: 
+                beta = min(beta, entry_score)
+            
+            if alpha >= beta:
+                return entry_score
+    
     moves = generate_possible_moves(board, is_red=is_red)
+    
+    if not moves:
+        return eval_function(board, root_color, is_red)
+    
+    if cached_best_move is not None and cached_best_move in moves:
+        moves.remove(cached_best_move)
+        moves.insert(0, cached_best_move)
+    
     if is_max:
-        max_eval = float('-inf')
+        best_score = float('-inf')
         for move in moves:
             new_board = execute_move(board, move, is_red)
             # Current is MAX level, flip to MIN level for next
-            eval = alphabeta(new_board, depth - 1, alpha, beta, root_color, False, not is_red, start_time, time_limit, eval_function)
-            max_eval = max(max_eval, eval)
-            alpha = max(alpha, eval)
+            eval = alphabeta(new_board, depth - 1, alpha, beta, root_color, False, not is_red, start_time, time_limit, eval_function, tt)
+            if eval > best_score:
+                best_score = eval
+                best_move = move
+                
+            alpha = max(alpha, best_score)
             if beta <= alpha:
                 break
-        return max_eval
     else:
-        min_eval = float('inf')
+        best_score = float('inf')
         for move in moves:
             new_board = execute_move(board, move, is_red)
-            # Current is MIN level, flip to MAX level for next
-            eval = alphabeta(new_board, depth - 1, alpha, beta, root_color, True, not is_red, start_time, time_limit, eval_function)
-            min_eval = min(min_eval, eval)
-            beta = min(beta, eval)
+            eval_score = alphabeta(new_board, depth - 1, alpha, beta, root_color, True, not is_red, start_time, time_limit, eval_function, tt)
+            
+            if eval_score < best_score:
+                best_score = eval_score
+                best_move = move
+                
+            beta = min(beta, best_score)
             if beta <= alpha:
                 break
-        return min_eval
+    
+    # UPPERBOUND (failed high, score is at most this)
+    if best_score <= original_alpha:
+        flag = 2 
+    # LOWERBOUND (failed low, score is at least this)
+    elif best_score >= original_beta:
+        flag = 1 
+    # EXACT (score fell cleanly between alpha and beta)
+    else:
+        flag = 0 
+
+    # Store in TT 
+    tt[board_key] = (best_score, depth, flag, best_move)
+    return best_score
+
 
 
 def generate_possible_moves(board: BoardState, is_red: bool) -> list[int]:
@@ -131,7 +190,7 @@ def generate_possible_moves(board: BoardState, is_red: bool) -> list[int]:
         if (is_red and board.is_red(start)) or (not is_red and board.is_blue(start)):
             h = board.get_height(start)
             
-            for offset, target in ADJACENT[start].items():
+            for _, target in ADJACENT[start].items():
                 target_empty = board.is_empty(target)
                 target_friendly = (is_red and board.is_red(target)) or (not is_red and board.is_blue(target))
                 target_enemy = not target_empty and not target_friendly

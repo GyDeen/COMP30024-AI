@@ -7,7 +7,7 @@ from referee.game import PlayerColor, Direction, \
 from .board import BoardState
 from .action import pack_move, execute_move
 from .search import get_best_move
-from .heuristic import eval_phalanx_0, eval_place_co1
+from .heuristic import eval1, eval_place_co1
 
 DIR_TO_OFFSET = {
     Direction.Up: -8,
@@ -39,10 +39,11 @@ class Agent:
         Any setup and/or precomputation should be done here.
         """
         self._color = color
-        self.evaluate = eval_phalanx_0
+        self.evaluate = eval1
         self.place_eval = eval_place_co1
         self._turn_count = 0
         self.board = BoardState()
+        self.tt = {}
         match color:
             case PlayerColor.RED:
                 print("Testing: I am playing as RED (first player)")
@@ -83,4 +84,28 @@ class Agent:
 
         move = pack_move(action_type, start_idx, target_idx)
         self.board = execute_move(self.board, move, color == PlayerColor.RED)
+        
+    def manage_tt_mem(self):
+        """
+        Actively manages the dictionary size to prevent exceeding peak memory limits.
+        A 64-byte key and a 4-item tuple value means we can store roughly 800,000 to 
+        1,000,000 entries safely within 250 MB.
+        """
+        MAX_ENTRIES = 800000
+        keys_to_delete = [
+                key for key, entry in self.tt.items() 
+                if entry[1] <= 2 
+            ]
+        
+        for key in keys_to_delete:
+                del self.tt[key]
+                
+        # If pruning shallow depths wasn't enough to reduce the size 
+        # we can prune more aggressively by removing entries with depth <= 4
+        keys_to_delete = [
+            key for key, entry in self.tt.items()
+            if entry[1] <= 4
+        ]
 
+        for key in keys_to_delete:
+            del self.tt[key]
