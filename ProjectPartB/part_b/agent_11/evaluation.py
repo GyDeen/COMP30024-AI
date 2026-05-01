@@ -1,25 +1,20 @@
 """
-Evaluation function for Cascade — v11: quiescence + anti-retreat.
+Evaluation function for Cascade — v12: central anchor strategy.
 
-CRITICAL FIXES:
-  1. QUIESCENCE: If the side to move has an available eat, evaluate
-     the POST-EAT position. This gives MCTS an implicit extra ply
-     for tactical positions. Without this, MCTS can't see "I eat R3
-     next turn" because it only evaluates static positions.
-
-  2. ANTI-RETREAT: When we're the tallest stack, moving away from
-     enemies is TERRIBLE. We should always be closing distance.
-     The "convergence" bonus is now massive — strong enough to
-     override any safety concerns.
-
-  3. CORNER DEATH: Being pushed into a corner with enemies nearby
-     is a death sentence (cascade push-off). Explicit huge penalty.
-
-  4. MOBILITY CRISIS: Having very few moves = about to be cornered
-     and killed. Severe penalty scales with how few options remain.
-
-  5. All the good stuff from v10 (initiative, vulnerability, 
-     stack-count-aware threats, last-stand logic).
+CHANGES OVER v11:
+  * ANCHOR BONUS: large reward for owning a height-4+ stack on one of
+    the 4 center squares (3,3), (3,4), (4,3), (4,4). This is the
+    strategic core — a tall central stack threatens the entire ring
+    of cells around it and is hardest to corner or push off.
+  * CENTRIPETAL PULL: when no anchor exists, h>=2 stacks get a bonus
+    proportional to their proximity to a center square, weighted by
+    height. Pulls our pieces inward to build the anchor.
+  * HUNTER-CONVERGENCE: the existing convergence term used to reward
+    only the tallest stack closing distance to enemies. Now, when we
+    have an anchor, the anchor is EXCLUDED from convergence (it should
+    stay put) and non-anchor "hunters" do the closing. This stops MCTS
+    from wanting to drag the anchor across the board.
+  * Quiescence (eat/cascade lookahead) and all v11 terms preserved.
 """
 from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
 from .action import is_valid_coord, UP, DOWN, LEFT, RIGHT, MOVE, EAT, CASCADE
@@ -27,6 +22,10 @@ from .action import move, eat, cascade
 
 INF = 999999
 OFFSETS = (UP, DOWN, LEFT, RIGHT)
+
+# 4 center cells: (3,3)=27, (3,4)=28, (4,3)=35, (4,4)=36
+CENTER_4 = frozenset({27, 28, 35, 36})
+ANCHOR_MIN_H = 4
 
 EDGE_DIST = [0] * 64
 for _r in range(8):
@@ -55,12 +54,13 @@ for _a in range(64):
     for _b in range(64):
         MANHATTAN[_a][_b] = abs((_a>>3)-(_b>>3)) + abs((_a&7)-(_b&7))
 
+# Distance from each cell to its nearest CENTER_4 cell
+DIST_TO_CENTER = [0] * 64
+for _i in range(64):
+    DIST_TO_CENTER[_i] = min(MANHATTAN[_i][_c] for _c in CENTER_4)
+
 
 def _quiescence_eval(board, is_red_maximizing):
-    """
-    If the side to move has a safe eat available, evaluate the
-    post-eat position instead. This gives a 1-ply tactical extension.
-    """
     my_flag = RED_FLAG if is_red_maximizing else BLUE_FLAG
     opp_flag = BLUE_FLAG if is_red_maximizing else RED_FLAG
     state = board.state
@@ -98,17 +98,6 @@ def _quiescence_eval(board, is_red_maximizing):
 
 
 def _opponent_cascade_threat(board, is_red_maximizing):
-    """
-    Check if the OPPONENT has a cascade that destroys significant tokens.
-    
-    This is the critical missing piece: without it, MCTS can't see
-    "if I put B6 at (4,5), Red cascades R6 right and I'm dead."
-    
-    Returns (worst_board, our_loss) where worst_board is the post-cascade
-    position and our_loss is how many of our tokens get destroyed.
-    Returns (None, 0) if no significant cascade threat exists.
-    """
-    # Check from opponent's perspective
     opp_flag = BLUE_FLAG if is_red_maximizing else RED_FLAG
     my_flag = RED_FLAG if is_red_maximizing else BLUE_FLAG
     state = board.state
@@ -117,33 +106,29 @@ def _opponent_cascade_threat(board, is_red_maximizing):
     opp_tokens = board.blue_tokens if is_red_maximizing else board.red_tokens
     
     worst_board = None
-    worst_loss = 0  # most tokens WE lose
+    worst_loss = 0
     
     for idx in range(64):
         val = state[idx]
         if not (val & opp_flag): continue
         h = val & HEIGHT_MASK
-        if h < 2: continue  # need height >= 2 to cascade
+        if h < 2: continue
         
         for offset in OFFSETS:
             nb = cascade(board, idx, offset)
             
-            # How many of OUR tokens got destroyed?
             nb_my = nb.red_tokens if is_red_maximizing else nb.blue_tokens
             my_lost = my_tokens - nb_my
             
-            # How many of THEIR tokens got destroyed? (off-edge cost)
             nb_opp = nb.blue_tokens if is_red_maximizing else nb.red_tokens
             opp_lost = opp_tokens - nb_opp
             
-            # Net damage to us (their gain)
             net_damage = my_lost - opp_lost
             
             if net_damage > worst_loss:
                 worst_loss = net_damage
                 worst_board = nb
             
-            # Also check instant kill
             if nb_my == 0:
                 return nb, my_tokens
     
@@ -157,15 +142,12 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
     if red_tokens == 0: return -INF if is_red_maximizing else INF
     if blue_tokens == 0: return INF if is_red_maximizing else -INF
 
-    # ── QUIESCENCE PHASE 1: Can we eat safely? ───────────
+    # Quiescence: if we have a safe eat, score the post-eat position
     q_board = _quiescence_eval(board, is_red_maximizing)
     if q_board is not None:
         return _static_eval(q_board, is_red_maximizing) + 3.0
 
-    # ── QUIESCENCE PHASE 2: Can opponent cascade-kill us? ─
-    # Check if any opponent stack can cascade (height >= 2).
-    # BUG FIX: old check (our stacks near edge?) was WRONG.
-    # R9 at center can be cascade-pushed through 4+ cells off the edge.
+    # Quiescence: opponent cascade threat
     opp_flag_check = BLUE_FLAG if is_red_maximizing else RED_FLAG
     any_opp_can_cascade = False
     for idx in range(64):
@@ -181,10 +163,9 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
         if cascade_loss > 0 and cascade_board is not None:
             static_score = _static_eval(board, is_red_maximizing)
             
-            # Instant death: return near -INF directly
             cb_my = cascade_board.red_tokens if is_red_maximizing else cascade_board.blue_tokens
             if cb_my == 0:
-                return -INF + 100  # slightly above -INF to allow comparison
+                return -INF + 100
             
             post_cascade_score = _static_eval(cascade_board, is_red_maximizing)
             
@@ -193,15 +174,7 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
             elif cascade_loss >= 1:
                 return post_cascade_score * 0.4 + static_score * 0.6
 
-    # ── QUIESCENCE PHASE 3: Can WE cascade profitably? ──
-    # Check if the side to move has a cascade that destroys significant
-    # opponent tokens. This catches "B6 cascade LEFT kills R9" — 
-    # the position is great for Blue, not neutral.
-    #
-    # Without this, MCTS evaluates "R9(3,4) next to B6(3,5)" from
-    # Blue's perspective as "Red has material advantage" (static eval).
-    # But Blue can cascade and kill R9! The position should score
-    # near +INF for Blue, making MCTS see it as terrible for Red.
+    # Quiescence: our profitable cascade
     my_flag_q3 = RED_FLAG if is_red_maximizing else BLUE_FLAG
     any_we_can_cascade = False
     for idx in range(64):
@@ -211,7 +184,6 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
             break
 
     if any_we_can_cascade:
-        # Check our cascades that destroy opponent tokens
         opp_flag_q3 = BLUE_FLAG if is_red_maximizing else RED_FLAG
         my_tokens_q3 = board.red_tokens if is_red_maximizing else board.blue_tokens
         opp_tokens_q3 = board.blue_tokens if is_red_maximizing else board.red_tokens
@@ -235,7 +207,6 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
                 net = opp_destroyed - my_lost
                 
                 if nb_opp == 0 and nb_my > 0:
-                    # We can cascade to win! This is near +INF
                     return INF - 100
                 
                 if net > best_net_gain:
@@ -245,14 +216,12 @@ def evaluate(board: BoardState, is_red_maximizing: bool) -> float:
         if best_our_cascade is not None and best_net_gain >= 3:
             post_score = _static_eval(best_our_cascade, is_red_maximizing)
             static_score = _static_eval(board, is_red_maximizing)
-            # Blend: we'll probably take this cascade
             return post_score * 0.6 + static_score * 0.4
 
     return _static_eval(board, is_red_maximizing)
 
 
 def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
-    """Core static evaluation — called after quiescence resolution."""
     red_tokens = board.red_tokens
     blue_tokens = board.blue_tokens
 
@@ -287,7 +256,7 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
     advantage = (my_tokens - opp_tokens) / total
     late_factor = max(0.0, 1.0 - total / 16.0)
 
-    # ── GAME PHASE WEIGHTS ───────────────────────────────
+    # Game phase weights
     if my_stack_n <= 1:
         survival_weight = 2.5
         elimination_weight = 0.5
@@ -304,10 +273,55 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
         survival_weight = 1.0
         elimination_weight = 1.0
 
-    # ── Precompute commonly needed values ────────────────
     my_max_h = max(h for _, h in my_stacks)
     opp_max_h = max(h for _, h in opp_stacks)
     we_are_tallest = my_max_h > opp_max_h
+
+    # ── ANCHOR BONUS ─────────────────────────────────────
+    # Strategic core: tall stack on one of the 4 center cells.
+    # Threatens the surrounding 8-cell ring, hardest to corner.
+    # Reward escalates with height up to h6 (diminishing returns).
+    anchor_bonus = 0.0
+    my_has_anchor = False
+    opp_has_anchor = False
+
+    for mi, mh in my_stacks:
+        if mi in CENTER_4:
+            if mh >= ANCHOR_MIN_H:
+                anchor_bonus += 22.0 + min(mh - 4, 2) * 3.0  # h4=22, h5=25, h6+=28
+                my_has_anchor = True
+            elif mh == 3:
+                anchor_bonus += 10.0  # almost an anchor
+            elif mh == 2:
+                anchor_bonus += 4.0
+            else:
+                anchor_bonus += 1.5
+
+    for oi, oh in opp_stacks:
+        if oi in CENTER_4:
+            if oh >= ANCHOR_MIN_H:
+                anchor_bonus -= 22.0 + min(oh - 4, 2) * 3.0
+                opp_has_anchor = True
+            elif oh == 3:
+                anchor_bonus -= 10.0
+            elif oh == 2:
+                anchor_bonus -= 4.0
+            else:
+                anchor_bonus -= 1.5
+
+    # ── CENTRIPETAL PULL ─────────────────────────────────
+    # When we don't have an anchor yet, pull h>=2 stacks toward center.
+    # max(0, 5 - dist_to_center) means cells at dist 0–4 contribute.
+    # Weighted by height so taller stacks getting central matters more.
+    centripetal = 0.0
+    if not my_has_anchor:
+        for mi, mh in my_stacks:
+            if mh >= 2:
+                centripetal += mh * max(0, 5 - DIST_TO_CENTER[mi]) * 0.7
+    if not opp_has_anchor:
+        for oi, oh in opp_stacks:
+            if oh >= 2:
+                centripetal -= oh * max(0, 5 - DIST_TO_CENTER[oi]) * 0.7
 
     # ── 1. MATERIAL ──────────────────────────────────────
     material_diff = my_tokens - opp_tokens
@@ -323,7 +337,6 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
             if mh > oh:
                 surplus = mh - oh
                 dist_bonus = max(0, 8 - d)
-                # Vulnerability: isolated small stacks are prime targets
                 vuln = 1.0
                 if oh <= 2:
                     vuln = 2.0
@@ -339,7 +352,7 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                 dist_bonus = max(0, 8 - d)
                 proximity += dist_bonus * 0.08
 
-    # ── 3. IMMEDIATE THREATS (stack-count aware) ─────────
+    # ── 3. IMMEDIATE THREATS ─────────────────────────────
     my_threatened = 0.0
     opp_threatened = 0.0
     for mi, mh in my_stacks:
@@ -463,23 +476,12 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                 if sv == 0: continue
                 if sv & opp_flag:
                     opp_h = sv & HEIGHT_MASK
-                    # BUG FIX: Do NOT skip when we're taller!
-                    # Being taller does NOT protect from cascade push-off.
-                    # R4 cascading right pushes B6 off the edge even though
-                    # B6 height 6 > R4 height 4.
-                    #
-                    # Only skip if we're adjacent (dist=1) AND strictly
-                    # taller — we can eat them before they cascade. Even
-                    # this is risky (it might be their turn), so use a
-                    # reduced penalty instead of skipping entirely.
                     opp_far = FAR_EDGE_DIST[pos * 4 + d_idx]
                     if opp_h >= opp_far:
                         urgency = max(0, 6 - dist_from_me)
                         if dist_from_me == 1 and mh > opp_h:
-                            # Adjacent and taller: reduced threat (we might eat first)
                             edge_trap_penalty += mh * urgency * 0.3
                         else:
-                            # Full threat: cascade can push us off
                             edge_trap_penalty += mh * urgency * 1.5
                 break
 
@@ -507,27 +509,13 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
     mobility_diff = (my_mobility - opp_mobility) * 0.4
 
     # ── 10. EDGE/CORNER DEATH PENALTY ───────────────────
-    # When we're the SHORTER stack, being near edges is catastrophic:
-    #   - Fewer escape directions (corner=2, edge=3, center=4)
-    #   - Vulnerable to cascade push-off
-    #   - One wrong step = cornered and dead
-    #
-    # This is NOT just a "corner" problem. ANY edge cell is dangerous
-    # when fleeing. The penalty scales with:
-    #   - How close to edge (ed=0 worst, ed=3 safe)
-    #   - Stack height (losing B9 on edge = game over)
-    #   - How close the nearest enemy is (edge + nearby enemy = death)
-    #
-    # When we're TALLER, edges are fine (we're chasing, not fleeing).
-    # Reward ENEMY being on edges instead.
     edge_death_penalty = 0.0
     edge_death_bonus = 0.0
 
     for mi, mh in my_stacks:
         ed = EDGE_DIST[mi]
-        if ed >= 3: continue  # center is safe
+        if ed >= 3: continue
 
-        # Find nearest enemy
         min_enemy_dist = 99
         nearest_enemy_h = 0
         for oi, oh in opp_stacks:
@@ -536,25 +524,18 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                 min_enemy_dist = d
                 nearest_enemy_h = oh
 
-        # Penalty depends on whether we're shorter (fleeing)
         if nearest_enemy_h > mh:
-            # We're SHORTER — edge is a death trap
-            # ed=0 (corner): penalty = mh * 12 * proximity_factor
-            # ed=1 (edge):   penalty = mh * 8 * proximity_factor
-            # ed=2 (near):   penalty = mh * 4 * proximity_factor
             edge_danger = (3 - ed) * 4.0
-            # Closer enemy = more urgent
             if min_enemy_dist <= 2:
-                prox_factor = 3.0   # imminent death
+                prox_factor = 3.0
             elif min_enemy_dist <= 4:
-                prox_factor = 2.0   # approaching danger
+                prox_factor = 2.0
             elif min_enemy_dist <= 6:
-                prox_factor = 1.0   # distant but still bad
+                prox_factor = 1.0
             else:
-                prox_factor = 0.5   # far away, mild penalty
+                prox_factor = 0.5
             edge_death_penalty += mh * edge_danger * prox_factor
         elif nearest_enemy_h == mh:
-            # Equal height on edge: also bad (they can eat us)
             edge_danger = (3 - ed) * 2.0
             if min_enemy_dist <= 3:
                 edge_death_penalty += mh * edge_danger * 1.5
@@ -572,7 +553,6 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                 nearest_my_h = mh
 
         if nearest_my_h > oh:
-            # Enemy is shorter and on edge — great for us
             edge_danger = (3 - ed) * 4.0
             if min_enemy_dist <= 2:   prox_factor = 3.0
             elif min_enemy_dist <= 4: prox_factor = 2.0
@@ -584,20 +564,23 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
             if min_enemy_dist <= 3:
                 edge_death_bonus += oh * edge_danger * 1.5
 
-    # ── 11. CONVERGENCE (anti-stall + smart flee) ────────
-    # When tallest: REWARD closing distance to killable enemies.
-    # When shortest: REWARD distance from enemies AND being centered.
-    #
-    # The CENTER-SEEKING is critical. "Run from enemy" without
-    # "run TOWARD center" causes corner death. The agent must
-    # prefer (3,3) dist=4 over (0,7) dist=5 because (3,3) has
-    # 4 escape directions while (0,7) has 2.
+    # ── 11. CONVERGENCE (anchor-aware) ───────────────────
+    # When we have an anchor, EXCLUDE it from convergence — anchors
+    # stay put. Only non-anchor "hunters" should be rewarded for
+    # closing distance to enemies.
     convergence = 0.0
     if my_stacks and opp_stacks:
         if we_are_tallest:
             min_kill_dist = 99
             for mi, mh in my_stacks:
-                if mh != my_max_h: continue
+                # Skip the anchor: it threatens statically, not by chasing
+                if my_has_anchor and mi in CENTER_4 and mh >= ANCHOR_MIN_H:
+                    continue
+                # Original heuristic: tallest-height stack only.
+                # Without an anchor that's our max stack; with an anchor
+                # we need any stack that can kill an enemy.
+                if not my_has_anchor and mh != my_max_h:
+                    continue
                 for oi, oh in opp_stacks:
                     if mh > oh:
                         d = MANHATTAN[mi][oi]
@@ -605,17 +588,12 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                             min_kill_dist = d
             if min_kill_dist < 99:
                 convergence = max(0, 8 - min_kill_dist) * 3.0
+
         elif my_max_h == opp_max_h:
-            # EQUAL HEIGHT: approach smaller enemy stacks we can eat.
-            # This prevents the B6-vs-R6 stalemate where the agent
-            # shuffles endlessly because neither "approach" (needs
-            # strictly taller) nor "flee" (needs strictly shorter) fires.
-            #
-            # B6 should eat R1/R2 debris to become B7/B8 and gain
-            # height advantage. Convergence rewards closing distance
-            # to any enemy shorter than us.
             min_eat_dist = 99
             for mi, mh in my_stacks:
+                if my_has_anchor and mi in CENTER_4 and mh >= ANCHOR_MIN_H:
+                    continue
                 for oi, oh in opp_stacks:
                     if mh > oh:
                         d = MANHATTAN[mi][oi]
@@ -623,12 +601,10 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                             min_eat_dist = d
             if min_eat_dist < 99:
                 convergence = max(0, 8 - min_eat_dist) * 2.0
-            # Also: stay centered (equal height = mutual danger)
             for mi, mh in my_stacks:
                 convergence += EDGE_DIST[mi] * 0.5
 
         elif opp_max_h > my_max_h:
-            # FLEE MODE: reward distance AND centrality.
             for mi, mh in my_stacks:
                 min_threat_dist = 99
                 for oi, oh in opp_stacks:
@@ -650,51 +626,33 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
     elif my_stack_n == 2: elim -= 2.0
 
     # ── 13. PINCER TRAP ───────────────────────────────────
-    # Two of our stacks on the same row/col with an enemy BETWEEN them.
-    # The enemy is trapped: moving along the line toward either of our
-    # stacks gets it eaten/cascaded. Moving perpendicular only works
-    # if it doesn't hit an edge.
-    #
-    # Example: B3(3,3), B3(5,3), R3(4,3). R3 is pinched:
-    #   Move up → B3(3,3) eats. Move down → B3(5,3) eats.
-    #   Move left/right → might hit edge, or we follow.
-    #
-    # Score: based on how trapped the enemy is.
-    #   - Both our stacks >= enemy height: deadly (we eat either way)
-    #   - Enemy near edge perpendicular to the line: even worse
-    #   - Close pincer (our stacks close together): more urgent
     pincer_bonus = 0.0
     pincer_penalty = 0.0
 
-    # Check our pincers on enemy
     for i, (mi1, mh1) in enumerate(my_stacks):
         for mi2, mh2 in my_stacks[i+1:]:
             mr1, mc1 = mi1 >> 3, mi1 & 7
             mr2, mc2 = mi2 >> 3, mi2 & 7
 
-            # Same row?
             if mr1 == mr2:
                 lo_c = min(mc1, mc2)
                 hi_c = max(mc1, mc2)
                 for oi, oh in opp_stacks:
                     or_, oc = oi >> 3, oi & 7
                     if or_ == mr1 and lo_c < oc < hi_c:
-                        # Enemy is between us on same row!
-                        gap = hi_c - lo_c - 1  # cells between our stacks
+                        gap = hi_c - lo_c - 1
                         can_eat = (mh1 >= oh) and (mh2 >= oh)
-                        # Perpendicular escape: how close to edge?
-                        perp_escape = min(or_, 7 - or_)  # 0=edge, 3=center
+                        perp_escape = min(or_, 7 - or_)
 
-                        score_p = oh * 2.0  # base: enemy height at risk
+                        score_p = oh * 2.0
                         if can_eat:
-                            score_p += oh * 3.0  # deadly: eaten either way
+                            score_p += oh * 3.0
                         if gap <= 2:
-                            score_p += oh * 2.0  # tight pincer
+                            score_p += oh * 2.0
                         if perp_escape <= 1:
-                            score_p += oh * 2.0  # edge perpendicular = very trapped
+                            score_p += oh * 2.0
                         pincer_bonus += score_p
 
-            # Same column?
             if mc1 == mc2:
                 lo_r = min(mr1, mr2)
                 hi_r = max(mr1, mr2)
@@ -714,7 +672,6 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                             score_p += oh * 2.0
                         pincer_bonus += score_p
 
-    # Check enemy pincers on us
     for i, (oi1, oh1) in enumerate(opp_stacks):
         for oi2, oh2 in opp_stacks[i+1:]:
             or1, oc1 = oi1 >> 3, oi1 & 7
@@ -759,44 +716,25 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                         pincer_penalty += score_p
 
     # ── 14. CORNER TRAP ──────────────────────────────────
-    # Enemy in corner (or 1 step from corner) with our stack positioned
-    # to cascade it off. This is an instant-win setup:
-    #   R6 at (0,0), B4 at (1,1): no matter what R6 does, B4 cascades.
-    #   R6 moves to (0,1) → B4 cascade left pushes R6 off.
-    #   R6 moves to (1,0) → B4 cascade up pushes R6 off.
-    #
-    # Score: massive when we can cascade in MULTIPLE directions to
-    # cover all escape routes. The more exits we cover, the more trapped.
-    CORNER_CELLS = [(0,0), (0,7), (7,0), (7,7)]
-
     corner_trap_bonus = 0.0
     corner_trap_penalty = 0.0
 
     for oi, oh in opp_stacks:
         or_, oc = oi >> 3, oi & 7
         opp_ed = EDGE_DIST[oi]
-        if opp_ed > 1: continue  # only corner / near-corner
+        if opp_ed > 1: continue
 
-        # Count how many cascade-attack angles we have on this enemy
-        # A cascade attack angle: our stack on the same row/col,
-        # with enough height to reach the enemy's position and push it off
         attack_angles = 0
         total_attack_score = 0.0
 
         for mi, mh in my_stacks:
             mr, mc = mi >> 3, mi & 7
 
-            # Same row?
             if mr == or_:
                 dist = abs(mc - oc)
                 if dist >= 1 and mh >= dist:
-                    # We can cascade along this row and reach the enemy
-                    # Check: does the cascade push enemy off the edge?
-                    # Enemy at column oc, we're at mc.
-                    # If mc < oc: cascade right → pushes enemy right → off if oc + (mh-dist) >= 8
-                    # If mc > oc: cascade left → pushes enemy left → off if oc - (mh-dist) < 0
                     if mc < oc:
-                        push_dist = mh - dist  # remaining tokens after reaching enemy
+                        push_dist = mh - dist
                         if oc + push_dist >= 8:
                             attack_angles += 1
                             total_attack_score += oh * 3.0
@@ -806,7 +744,6 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                             attack_angles += 1
                             total_attack_score += oh * 3.0
 
-            # Same column?
             if mc == oc:
                 dist = abs(mr - or_)
                 if dist >= 1 and mh >= dist:
@@ -821,27 +758,17 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                             attack_angles += 1
                             total_attack_score += oh * 3.0
 
-            # DIAGONAL CAGE: diagonally adjacent to a corner enemy.
-            # B4(1,1) vs R6(0,0): R6 can only go to (0,1) or (1,0).
-            # After R6→(0,1): B4 is on same column → cascade up pushes off.
-            # After R6→(1,0): B4 is on same row → cascade left pushes off.
-            # So diagonal adjacency to a corner = 2 attack angles!
             if opp_ed == 0 and MANHATTAN[mi][oi] == 2:
-                # Check if we're diagonally adjacent (dr=1, dc=1)
                 dr = abs(mr - or_)
                 dc = abs(mc - oc)
                 if dr == 1 and dc == 1 and mh >= 1:
-                    # Count both escape routes we cover
-                    # Escape 1: enemy moves to (or_, mc) — same col as us
                     esc1_r, esc1_c = or_, mc
                     if 0 <= esc1_r < 8 and 0 <= esc1_c < 8:
                         esc1_ed_r = min(esc1_r, 7 - esc1_r)
                         esc1_ed_c = min(esc1_c, 7 - esc1_c)
                         if esc1_ed_r == 0 or esc1_ed_c == 0:
-                            # We can cascade to push enemy off from this position
                             attack_angles += 1
                             total_attack_score += oh * 3.0
-                    # Escape 2: enemy moves to (mr, oc) — same row as us
                     esc2_r, esc2_c = mr, oc
                     if 0 <= esc2_r < 8 and 0 <= esc2_c < 8:
                         esc2_ed_r = min(esc2_r, 7 - esc2_r)
@@ -851,12 +778,10 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                             total_attack_score += oh * 3.0
 
         if attack_angles >= 2:
-            # Multiple attack angles = enemy can't escape either direction
             corner_trap_bonus += total_attack_score * 2.0
         elif attack_angles == 1:
             corner_trap_bonus += total_attack_score * 0.8
 
-    # Check if WE are corner-trapped
     for mi, mh in my_stacks:
         mr, mc = mi >> 3, mi & 7
         my_ed = EDGE_DIST[mi]
@@ -896,7 +821,6 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
                             attack_angles += 1
                             total_attack_score += mh * 3.0
 
-            # Diagonal cage (enemy diagonally adjacent to us in corner)
             if my_ed == 0 and MANHATTAN[oi][mi] == 2:
                 dr = abs(or_ - mr)
                 dc = abs(oc - mc)
@@ -949,12 +873,14 @@ def _static_eval(board: BoardState, is_red_maximizing: bool) -> float:
         + elim * elimination_weight
         + (my_safety - opp_safety) * survival_weight
 
-        # Pincer trap
         + pincer_bonus * elimination_weight
         - pincer_penalty * survival_weight
 
-        # Corner trap
         + corner_trap_bonus * elimination_weight
         - corner_trap_penalty * survival_weight
+
+        # ★ NEW: central anchor strategy
+        + anchor_bonus
+        + centripetal
     )
     return score
