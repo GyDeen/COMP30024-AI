@@ -74,16 +74,11 @@ def calc_positioning(friendly_map: dict, enemy_map: dict) -> float:
 def calc_efficiency(friendly_map: dict) -> float:
     score = 0.0
     for h in friendly_map.values():
-        if h == 1: 
-            score -= 10.0
-        elif 2 <= h <= 3: 
-            score += 5.0
-        elif 4 <= h <= 6: 
-            score += 15.0
-        elif h == 7: 
-            score -= 15.0
-        elif h > 7: 
-            score -= (30.0 + ((h - 7) * 10.0))
+        if h == 1: score -= 10.0
+        elif 2 <= h <= 3: score += 5.0
+        elif 4 <= h <= 6: score += 15.0
+        elif h == 7: score -= 15.0
+        elif h > 7: score -= (30.0 + ((h - 7) * 10.0))
     return score
 
 def calc_alignment(friendly_map: dict) -> float:
@@ -223,7 +218,7 @@ def eval_place0(board: BoardState, root_color: int) -> tuple[float, float, float
     # Max difference in placement is 4. Scale from -4 to +4 into 0 to 100.
     material = ((f_len - e_len + 4.0) / 8.0) * 100.0
 
-    # Average weight is between 1 (edges) and 4 (centre).
+    # Average weight is between 1 (edges) and 4 (center).
     if f_len > 0:
         avg_center = center_raw / f_len
         centrality = ((avg_center - 1.0) / 3.0) * 100.0
@@ -386,31 +381,12 @@ def _detect_compact_L(stacks):
     return best_score, best_elbow, best_L
 
 
-def eval_place_L(board: BoardState, root_color: int, is_red: bool) -> float:
-    """
-    Placement-phase evaluation: compact center L + enemy blocking + merge
-    readiness.
+# ── Shared helpers for placement evaluation ─────────────────────────
 
-    Desired placement sequence (e.g. as Red):
-      Move 1: Grab a center-4 cell.
-      Move 2: Place adjacent to our center stack, in a direction that
-              also blocks the opponent from expanding toward our side.
-      Move 3: Complete the compact 3-stack L (elbow + 2 perpendicular
-              adjacent stacks).
-      Move 4: Place near the L for post-placement cascade/merge into h4+.
-
-    Scoring:
-      1. Material       — token count parity
-      2. Centrality     — proximity to center-4 cells
-      3. Adjacency      — connected friendly pairs (building the L)
-      4. Compact L      — exact 3-stack right-angle detection
-      5. Blocking       — restrict opponent's useful placement squares
-      6. 4th-stack      — merge readiness (near L for cascade/move)
-      7. Anti-enemy-L   — penalize if opponent is forming a good L
-    """
+def _scan_board(board, root_color):
+    """Extract friendly/enemy positions and compute directional info."""
     friendly = []
     enemy = []
-
     for idx in range(64):
         if board.is_empty(idx):
             continue
@@ -420,16 +396,39 @@ def eval_place_L(board: BoardState, root_color: int, is_red: bool) -> float:
         else:
             enemy.append(idx)
 
-    f_count = len(friendly)
-    e_count = len(enemy)
-    f_set = set(friendly)
+    ctx = {
+        'friendly': friendly,
+        'enemy': enemy,
+        'f_set': set(friendly),
+        'e_set': set(enemy),
+        'f_count': len(friendly),
+        'e_count': len(enemy),
+        'board': board,
+    }
 
+    # Direction vectors from board center toward/away from enemy
+    cr, cc = 3.5, 3.5
+    if enemy:
+        e_avg_r = sum(e >> 3 for e in enemy) / ctx['e_count']
+        e_avg_c = sum(e & 7 for e in enemy) / ctx['e_count']
+        ctx['toward_r'] = e_avg_r - cr
+        ctx['toward_c'] = e_avg_c - cc
+    else:
+        e_avg_r = e_avg_c = 3.5
+        ctx['toward_r'] = ctx['toward_c'] = 0.0
+    ctx['away_r'] = -ctx['toward_r']
+    ctx['away_c'] = -ctx['toward_c']
+    ctx['e_avg_r'] = e_avg_r
+    ctx['e_avg_c'] = e_avg_c
+    ctx['cr'] = cr
+    ctx['cc'] = cc
+
+    return ctx
+
+
+def _score_centrality(friendly):
+    """Score all friendly stacks by proximity to center-4 cells."""
     score = 0.0
-
-    # ── 1. MATERIAL ─────────────────────────────────────
-    score += (f_count - e_count) * 15.0
-
-    # ── 2. CENTRALITY ───────────────────────────────────
     for idx in friendly:
         d = _DIST_TO_CENTER[idx]
         score += (6 - d) * 6.0
@@ -437,113 +436,330 @@ def eval_place_L(board: BoardState, root_color: int, is_red: bool) -> float:
             score += 18.0
         if EDGE_DIST[idx] == 0:
             score -= 12.0
+    return score
 
-    # ── 3. ADJACENCY (friendly connectivity) ────────────
-    for i in range(f_count):
-        for j in range(i + 1, f_count):
-            dist = _MANHATTAN[friendly[i]][friendly[j]]
-            if dist == 1:
-                score += 10.0
-            elif dist == 2:
-                # Only reward collinear (same row or col) — useful for L
-                if (friendly[i] >> 3) == (friendly[j] >> 3) or \
-                   (friendly[i] & 7) == (friendly[j] & 7):
-                    score += 3.0
 
-    # ── 4. COMPACT L DETECTION ──────────────────────────
+def _get_enemy_expansion(ctx):
+    """Return set of empty cells adjacent to enemy stacks (where enemy wants to expand)."""
+    e_exp = set()
+    for e in ctx['enemy']:
+        for nb in _ADJ_SET[e]:
+            if nb not in ctx['e_set'] and nb not in ctx['f_set']:
+                e_exp.add(nb)
+    return e_exp
+
+
+def _score_blocker(blocker_idx, ctx, toward_weight=8.0, toward_cap=None, block_weight=10.0):
+    """
+    Score a blocker stack: toward enemy, near center, blocks enemy expansion.
+
+    Args:
+        blocker_idx: cell index of the blocker
+        ctx: context dict from _scan_board
+        toward_weight: multiplier for toward-enemy dot product
+        toward_cap: if set, cap the toward-enemy bonus at this value
+        block_weight: reward per blocked enemy expansion cell
+    """
+    score = 0.0
+
+    # Near center
+    score += max(0, (4 - _DIST_TO_CENTER[blocker_idx]) * 4.0)
+
+    # Toward enemy
+    if ctx['enemy']:
+        br, bc = blocker_idx >> 3, blocker_idx & 7
+        dot = (br - ctx['cr']) * ctx['toward_r'] + (bc - ctx['cc']) * ctx['toward_c']
+        bonus = dot * toward_weight
+        if toward_cap is not None:
+            bonus = min(bonus, toward_cap)
+        score += bonus
+
+    # Blocks enemy expansion
+    if ctx['enemy']:
+        blk_adj = _ADJ_SET[blocker_idx]
+        e_exp = _get_enemy_expansion(ctx)
+        score += len(e_exp & blk_adj) * block_weight
+
+    return score
+
+
+def _get_L_completions(a, b, f_set, e_set):
+    """
+    Find all cells that would complete a compact L from adjacent pair (a, b).
+    Returns set of valid completion cell indices.
+    """
+    d_ab = b - a
+    completions = set()
+    for base in (a, b):
+        for pd in (-8, 8, -1, 1):
+            if pd == d_ab or pd == -d_ab:
+                continue  # skip collinear
+            cand = base + pd
+            if cand < 0 or cand >= 64:
+                continue
+            if pd in (-1, 1) and (cand >> 3) != (base >> 3):
+                continue  # horizontal wrap check
+            if cand not in f_set and cand not in e_set:
+                completions.add(cand)
+    return completions
+
+
+def _is_arm_extension(idx, elbow, arm1, arm2):
+    """
+    Check if placing at idx would just extend an L arm into a useless line.
+    Returns True if idx extends past an arm tip OR through the elbow.
+    """
+    for arm in (arm1, arm2):
+        d_elbow_to_arm = arm - elbow
+        # Case A: extends past arm tip in same direction
+        if _MANHATTAN[idx][arm] == 1 and (idx - arm) == d_elbow_to_arm:
+            return True
+        # Case B: extends through elbow in opposite direction
+        if _MANHATTAN[idx][elbow] == 1 and (idx - elbow) == -d_elbow_to_arm:
+            return True
+    return False
+
+
+# ── Phase-specific scoring functions ────────────────────────────────
+
+def _phase2_center_blocker(ctx):
+    """
+    Phase 2 (f_count=2): Center + Blocker.
+    The 2nd stack should be a BLOCKER: near center, toward enemy,
+    NOT adjacent to our center stack. Penalize adjacency.
+    """
+    friendly = ctx['friendly']
+    a, b = friendly[0], friendly[1]
+    dist_ab = _MANHATTAN[a][b]
+
+    # Identify which is center vs blocker
+    a_cen = a in _CENTER_4
+    b_cen = b in _CENTER_4
+    if a_cen and not b_cen:
+        center_idx, blocker_idx = a, b
+    elif b_cen and not a_cen:
+        center_idx, blocker_idx = b, a
+    elif a_cen and b_cen:
+        da = abs((a >> 3) - ctx['e_avg_r']) + abs((a & 7) - ctx['e_avg_c'])
+        db = abs((b >> 3) - ctx['e_avg_r']) + abs((b & 7) - ctx['e_avg_c'])
+        center_idx, blocker_idx = (b, a) if da < db else (a, b)
+    else:
+        center_idx, blocker_idx = (a, b) if _DIST_TO_CENTER[a] <= _DIST_TO_CENTER[b] else (b, a)
+
+    score = 0.0
+
+    # Penalize adjacency — don't start L yet
+    if dist_ab == 1:
+        score -= 20.0
+    elif dist_ab == 2:
+        score += 8.0
+    elif dist_ab == 3:
+        score += 4.0
+
+    # Blocker quality
+    score += _score_blocker(blocker_idx, ctx, toward_weight=8.0, block_weight=10.0)
+
+    return score
+
+
+def _phase3_adaptive(ctx):
+    """
+    Phase 3 (f_count=3): Adaptive — L-completion or blocker.
+
+    If we already have an adjacent pair, the 3rd stack should ideally
+    COMPLETE the L (perpendicular neighbor = +45 bonus).
+    If not, it acts as a blocker (capped toward-enemy reward).
+    """
+    friendly = ctx['friendly']
+    f_set = ctx['f_set']
+    e_set = ctx['e_set']
+
+    # Find all adjacent pairs among our 3 stacks
+    pairs_found = []
+    for i in range(3):
+        for j in range(i + 1, 3):
+            a, b = friendly[i], friendly[j]
+            if _MANHATTAN[a][b] == 1:
+                third = friendly[3 - i - j]
+                pairs_found.append((a, b, third))
+
+    if not pairs_found:
+        return -20.0  # no adjacent pair — bad placement
+
+    best_cfg = -9999.0
+
+    for a, b, third in pairs_found:
+        cfg = 0.0
+
+        # ── Pair quality ──
+        if a in _CENTER_4 or b in _CENTER_4:
+            cfg += 25.0
+        cfg += max(0, 8.0 - _DIST_TO_CENTER[a] - _DIST_TO_CENTER[b])
+
+        # ── Is 3rd stack an L-completion cell? ──
+        d_ab = b - a
+        is_completion = False
+        for base in (a, b):
+            for pd in (-8, 8, -1, 1):
+                if pd == d_ab or pd == -d_ab:
+                    continue
+                if base + pd == third:
+                    is_completion = True
+                    break
+            if is_completion:
+                break
+
+        if is_completion:
+            cfg += _score_L_completion(a, b, third, ctx)
+        else:
+            cfg += _score_third_as_blocker(a, b, third, ctx)
+
+        if cfg > best_cfg:
+            best_cfg = cfg
+
+    return best_cfg
+
+
+def _score_L_completion(a, b, third, ctx):
+    """Score the case where the 3rd stack completes a compact L with pair (a, b)."""
+    score = 45.0  # huge L-completion bonus
+
+    # L center-4 presence
+    l_all = [a, b, third]
+    score += sum(1 for s in l_all if s in _CENTER_4) * 10.0
+
+    # L away from enemy
+    if ctx['enemy']:
+        l_avg_r = sum(s >> 3 for s in l_all) / 3.0
+        l_avg_c = sum(s & 7 for s in l_all) / 3.0
+        dot_L = (l_avg_r - ctx['cr']) * ctx['away_r'] + (l_avg_c - ctx['cc']) * ctx['away_c']
+        score += dot_L * 5.0
+
+    # Edge penalty
+    if EDGE_DIST[third] == 0:
+        score -= 10.0
+
+    return score
+
+
+def _score_third_as_blocker(a, b, third, ctx):
+    """Score the case where the 3rd stack acts as a blocker (not L-completion)."""
+    f_set = ctx['f_set']
+    e_set = ctx['e_set']
+    score = 0.0
+
+    # Separation from pair
+    min_d = min(_MANHATTAN[third][a], _MANHATTAN[third][b])
+    if min_d >= 2:
+        score += 8.0
+
+    # Blocker quality (capped toward-enemy)
+    score += _score_blocker(third, ctx, toward_weight=3.0, toward_cap=6.0, block_weight=4.0)
+
+    # L-completion resilience: count safe paths for the pair
+    completions = _get_L_completions(a, b, f_set, e_set)
+    enemy_adj_zone = set()
+    for e in ctx['enemy']:
+        enemy_adj_zone.update(_ADJ_SET[e])
+    safe = sum(1 for c in completions if c not in enemy_adj_zone)
+    score += safe * 6.0
+    if safe == 0 and completions:
+        score -= 20.0
+
+    return score
+
+
+def _phase4_complete_L(ctx):
+    """
+    Phase 4 (f_count >= 4): Completed L + Blocker.
+    Score the compact L shape and the separated blocker position.
+    """
+    friendly = ctx['friendly']
+    board = ctx['board']
+    score = 0.0
+
+    # Detect compact L
     l_score, l_elbow, l_stacks = _detect_compact_L(friendly)
     score += l_score
 
-    # ── 5. BLOCKING ─────────────────────────────────────
-    # Our stacks create a "threat zone": cells adjacent to us where
-    # the opponent CANNOT place.  We want this zone to overlap with
-    # cells the opponent would like to place at (adjacent to their
-    # stacks).
-    if friendly and enemy:
-        # Cells adjacent to any of our stacks
-        our_threat_zone = set()
-        for f_idx in friendly:
-            our_threat_zone.update(_ADJ_SET[f_idx])
-
-        # Cells adjacent to enemy stacks that are empty — places the
-        # enemy wants to expand into
-        enemy_wants = set()
-        for e_idx in enemy:
-            for nb in _ADJ_SET[e_idx]:
-                if board.is_empty(nb):
-                    enemy_wants.add(nb)
-
-        # Blocked = enemy wants these but our adjacency prevents it
-        blocked = enemy_wants & our_threat_zone
-        score += len(blocked) * 8.0
-
-    # ── 6. 4TH-STACK PLACEMENT ───────────────────────────
-    # Once 3 stacks form the L, the 4th must NOT just extend an arm
-    # (useless line).  Instead it should be placed to block enemy
-    # expansion or in a separate strategic zone for post-placement
-    # threats.
-    if l_stacks and f_count >= 4:
+    if l_stacks:
         l_set = set(l_stacks)
         elbow = l_stacks[0]
         arm1, arm2 = l_stacks[1], l_stacks[2]
 
-        # L centroid for spread calculation
-        l_avg_r = sum(s >> 3 for s in l_stacks) / 3.0
-        l_avg_c = sum(s & 7 for s in l_stacks) / 3.0
+        # L away from enemy
+        if ctx['enemy']:
+            l_avg_r = sum(s >> 3 for s in l_stacks) / 3.0
+            l_avg_c = sum(s & 7 for s in l_stacks) / 3.0
+            dot_L = (l_avg_r - ctx['cr']) * ctx['away_r'] + (l_avg_c - ctx['cc']) * ctx['away_c']
+            score += dot_L * 5.0
 
+        # Evaluate each non-L stack (the blocker)
         for idx in friendly:
             if idx in l_set:
                 continue
 
-            # ── Detect arm extension (BAD) ──
-            # Two cases of useless line extension:
-            # A) 4th adjacent to arm tip, same direction as elbow→arm
-            #    (extends the arm outward)
-            # B) 4th adjacent to elbow, OPPOSITE direction from an arm
-            #    (extends the line through the elbow backward)
-            is_extending = False
-            for arm in (arm1, arm2):
-                d_elbow_to_arm = arm - elbow
-                # Case A: extends past arm tip
-                if _MANHATTAN[idx][arm] == 1:
-                    if (idx - arm) == d_elbow_to_arm:
-                        is_extending = True
-                        break
-                # Case B: extends past elbow in opposite direction
-                if _MANHATTAN[idx][elbow] == 1:
-                    if (idx - elbow) == -d_elbow_to_arm:
-                        is_extending = True
-                        break
-
-            if is_extending:
-                score -= 35.0   # strong penalty: don't extend arms
+            if _is_arm_extension(idx, elbow, arm1, arm2):
+                score -= 35.0
             else:
-                # ── Reward useful 4th positions ──
-                # Near center for post-placement threats
-                score += max(0, (4 - _DIST_TO_CENTER[idx]) * 5.0)
+                # Blocker quality (capped toward-enemy)
+                score += _score_blocker(idx, ctx, toward_weight=4.0, toward_cap=8.0, block_weight=5.0)
 
-                # Spread bonus: 4th stack at distance 2-4 from L
-                # centroid is ideal (strategic coverage, not clumped)
-                ir, ic = idx >> 3, idx & 7
-                spread = abs(ir - l_avg_r) + abs(ic - l_avg_c)
-                if 2.0 <= spread <= 4.0:
-                    score += 10.0
-                elif spread > 4.0:
-                    score += 3.0  # too far, less useful
-
-                # Within cascade/move reach of L (dist 2-3 is ideal)
-                min_d = min(_MANHATTAN[idx][l_idx] for l_idx in l_stacks)
-                if min_d == 1:
-                    # Adjacent to L but NOT extending — e.g. on the
-                    # inside of the L or perpendicular to an arm
+                # Separation bonus
+                min_d = min(_MANHATTAN[idx][l] for l in l_stacks)
+                if min_d >= 2:
                     score += 8.0
-                elif min_d <= 3:
-                    score += 5.0
 
-    # ── 7. ANTI-ENEMY-L ────────────────────────────────
-    if e_count >= 3:
-        enemy_l, _, _ = _detect_compact_L(enemy)
+    # Universal blocking
+    if friendly and ctx['enemy']:
+        our_adj = set()
+        for f_idx in friendly:
+            our_adj.update(_ADJ_SET[f_idx])
+        enemy_wants = set()
+        for e_idx in ctx['enemy']:
+            for nb in _ADJ_SET[e_idx]:
+                if board.is_empty(nb):
+                    enemy_wants.add(nb)
+        score += len(enemy_wants & our_adj) * 5.0
+
+    # Anti-enemy-L
+    if ctx['e_count'] >= 3:
+        enemy_l, _, _ = _detect_compact_L(ctx['enemy'])
         score -= enemy_l * 0.5
+
+    return score
+
+
+# ── Main dispatcher ─────────────────────────────────────────────────
+
+def eval_place_L(board: BoardState, root_color: int, is_red: bool) -> float:
+    """
+    Phase-aware placement evaluation implementing the teacher's strategy:
+
+      Stack #1: Center-4 grab
+      Stack #2: BLOCKER — near center, TOWARD enemy, NOT adjacent to #1.
+      Stack #3: L-start/complete — adjacent to #1, completing the L.
+      Stack #4: L-complete or blocker.
+
+    Dispatches to phase-specific functions based on f_count.
+    """
+    ctx = _scan_board(board, root_color)
+
+    score = 0.0
+
+    # Universal components
+    score += (ctx['f_count'] - ctx['e_count']) * 15.0   # material
+    score += _score_centrality(ctx['friendly'])          # centrality
+
+    # Phase-specific components
+    if ctx['f_count'] <= 1:
+        pass  # Phase 1: centrality is enough
+    elif ctx['f_count'] == 2:
+        score += _phase2_center_blocker(ctx)
+    elif ctx['f_count'] == 3:
+        score += _phase3_adaptive(ctx)
+    elif ctx['f_count'] >= 4:
+        score += _phase4_complete_L(ctx)
 
     return score
     

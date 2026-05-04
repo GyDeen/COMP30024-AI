@@ -76,9 +76,9 @@ def calc_efficiency(friendly_map: dict) -> float:
     for h in friendly_map.values():
         if h == 1: score -= 10.0
         elif 2 <= h <= 3: score += 5.0
-        elif 4 <= h <= 6: score += 15.0
-        elif h == 7: score -= 15.0
-        elif h > 7: score -= (30.0 + ((h - 7) * 10.0))
+        elif 4 <= h <= 5: score += 15.0
+        elif h == 6: score -= 15.0
+        elif h > 6: score -= (30.0 + ((h - 7) * 10.0))
     return score
 
 def calc_alignment(friendly_map: dict) -> float:
