@@ -195,83 +195,105 @@ def eval1(board: BoardState, root_color: int, is_red: bool) -> float:
     return evaluate_board(board, root_color, is_red, 'phalanx_aggressive')
 
 # ===============================================================================
-
-"""Placing phase evaluation functions"""
-
-def eval_place0(board: BoardState, root_color: int) -> tuple[float, float, float, float]:
-    """Returns (Material, Centrality, Support, Aggression) all scaled from 0 to 100."""
+# Placing phase evaluation functions
+def get_place_maps(board: BoardState, root_color: int) -> tuple[list, list, set, set]:
+    """Scans the board once for placing phase features."""
     friendly = []
     enemies = []
-    center_raw = 0.0
+    f_controlled = set()
+    e_controlled = set()
 
     for idx in range(64):
         if board.is_empty(idx): continue
-        if (root_color and board.is_red(idx)) or (not root_color and board.is_blue(idx)):
+        
+        is_friendly = (root_color == 1 and board.is_red(idx)) or \
+                      (root_color == 0 and board.is_blue(idx))
+        
+        if is_friendly:
             friendly.append(idx)
-            center_raw += CENTER_WEIGHTS[idx]
+            for adj in ADJACENT[idx].values():
+                if board.is_empty(adj): f_controlled.add(adj)
         else:
             enemies.append(idx)
+            for adj in ADJACENT[idx].values():
+                if board.is_empty(adj): e_controlled.add(adj)
+                
+    return friendly, enemies, f_controlled, e_controlled
 
+
+def calc_place_centrality(friendly: list) -> float:
+    """A simple average of the center weights of our friendly stacks, rewarding central control."""
+    if not friendly: 
+        return 0.0
+    center_raw = sum(CENTER_WEIGHTS[idx] for idx in friendly)
+    return center_raw / len(friendly) # likely to between 3.3 - 4.0
+
+def calc_place_zone_control(f_controlled: set, e_controlled: set) -> float:
+    # Every empty square adjacent to our stack is a square the enemy CANNOT place on.
+    return float(len(f_controlled) - len(e_controlled)) # -4 to +4
+
+def calc_place_synergy(friendly: list) -> float:
+    """
+    Rewards L-shapes (diagonal distance 2) which allow safe cascade-to-merge setups.
+    """
+    score = 0.0
     f_len = len(friendly)
-    e_len = len(enemies)
-
-    # Max difference in placement is 4. Scale from -4 to +4 into 0 to 100.
-    material = ((f_len - e_len + 4.0) / 8.0) * 100.0
-
-    # Average weight is between edge and center.
-    if f_len > 0:
-        avg_center = center_raw / f_len
-        centrality = ((avg_center - 1.0) / 3.0) * 100.0
-    else:
-        centrality = 0.0
-
-    # Max theoretical pairs for 4 tokens is 6.
-    support_pairs = 0
     for i in range(f_len):
         for j in range(i + 1, f_len):
             r1, c1 = divmod(friendly[i], 8)
             r2, c2 = divmod(friendly[j], 8)
-            dist = abs(r1 - r2) + abs(c1 - c2)
-            if 1 <= dist <= 3:
-                support_pairs += 1
-    support = (min(support_pairs, 6) / 6.0) * 100.0
-
-    # How many of our tokens are exactly 2 steps from an enemy?
-    threatening = 0
-    for f_idx in friendly:
-        fr, fc = divmod(f_idx, 8)
-        for e_idx in enemies:
-            er, ec = divmod(e_idx, 8)
-            dist = abs(fr - er) + abs(fc - ec)
-            if dist == 2:
-                threatening += 1
-                break # Count each friendly token max once
-    aggression = (min(threatening, 4) / 4.0) * 100.0
-
-    return material, centrality, support, aggression
-
-
-def eval_place_co0(board: BoardState, root_color: int, is_red: bool) -> float:
-    """Defensive evaluation for placing phase, focused on building a strong fortress."""
-    mat, cen, sup, agg = eval_place0(board, root_color)
-    
-    # Calculate weighted final score
-    score = (mat * 0.40) + (cen * 0.40) + (sup * 0.20) + (agg * 0.00)
+            
+            # The True L-Shape Check:
+            # Must be exactly 1 row apart AND 1 column apart (a perfect diagonal)
+            if abs(r1 - r2) == 1 and abs(c1 - c2) == 1:
+                score += 15.0
+                
     return score
+
+
+# ==============================================================================
+# Coefficient set up for Placing phase profiles
+PLACE_PROFILES = {
+    # Tries to maximize valid squares for us while minimizing them for the enemy
+    'place_territory': {'centrality': 0.20, 'zone_control': 0.50, 'synergy': 0.20},
+    
+    # Focuses on creating L-shapes and tight clusters for massive height-6 merges
+    'place_phalanx':   {'centrality': 0.30, 'zone_control': 0.10, 'synergy': 0.50},
+    
+    # Actively seeks to place distance-2 traps to bait the opponent into bad trades
+    'place_trapper':   {'centrality': 0.20, 'zone_control': 0.10, 'synergy': 0.30},
+
+    # A balanced approach for general testing
+    'place_balanced':  {'centrality': 0.25, 'zone_control': 0.25, 'synergy': 0.25}
+}
+
+def evaluate_place_board(board: BoardState, root_color: int, is_current_turn_red: bool, profile_name: str) -> float:
+    """The core placement evaluation runner that dynamically applies the requested profile"""
+    weights = PLACE_PROFILES.get(profile_name, PLACE_PROFILES['place_balanced'])
+    friendly, enemies, f_controlled, e_controlled = get_place_maps(board, root_color)
+    
+    total_score = 0.0
+    
+    # Only calculate the feature if the weight is greater than 0
+    if weights['centrality'] > 0:   
+        total_score += calc_place_centrality(friendly) * weights['centrality']
+        
+    if weights['zone_control'] > 0: 
+        total_score += calc_place_zone_control(f_controlled, e_controlled) * weights['zone_control']
+
+    if weights['synergy'] > 0:      
+        total_score += calc_place_synergy(friendly) * weights['synergy']
+
+    return total_score
+
+# ==============================================================================
+# Evaluation functions exposed to the Agent
+def eval_place_co0(board: BoardState, root_color: int, is_red: bool) -> float:
+    return evaluate_place_board(board, root_color, is_red, 'place_territory')
 
 def eval_place_co1(board: BoardState, root_color: int, is_red: bool) -> float:
-    """Aggressive evaluation for placing phase, focused on threatening the opponent."""
-    mat, cen, sup, agg = eval_place0(board, root_color)
-    
-    # Calculate weighted final score
-    score = (mat * 0.40) + (cen * 0.10) + (sup * 0.00) + (agg * 0.50)
-    return score
+    return evaluate_place_board(board, root_color, is_red, 'place_trapper')
 
 def eval_place_co2(board: BoardState, root_color: int, is_red: bool) -> float:
-    """Balanced evaluation for placing phase, with moderate emphasis on both defense and aggression."""
-    mat, cen, sup, agg = eval_place0(board, root_color)
-
-    # Calculate weighted final score
-    score = (mat * 0.40) + (cen * 0.25) + (sup * 0.20) + (agg * 0.15)
-    return score
+    return evaluate_place_board(board, root_color, is_red, 'place_phalanx')
     
