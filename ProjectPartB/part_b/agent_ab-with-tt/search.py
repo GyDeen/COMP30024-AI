@@ -21,7 +21,8 @@ for i in range(64):
     if c < 7: neighbors[1]  = i + 1  
     ADJACENT.append(neighbors)
 
-def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaining: float, eval_function, tt: dict) -> Action:
+def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaining: float, 
+                  place_eval_func, move_eval_func, tt: dict) -> Action:
     time_limit_for_turn = min(time_remaining / 40.0, 3.0)
     is_placing = board.turn_count < 8
 
@@ -31,15 +32,15 @@ def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaini
     start_time = time.perf_counter()
     best_move = None
     
-    if is_placing:
-        # We can maximum have 8 turns in placing phase
-        max_depth = 8 - board.turn_count  
-    else:
-        max_depth = 20
+    max_depth = 20
     
     # Iterative Deepening Search
     for depth in range(1, max_depth + 1):
         try:
+            if is_placing:
+                eval_function = place_eval_func
+            else:
+                eval_function = move_eval_func
             move, score = search_all_move(board, depth, float('-inf'), float('inf'), root_color, True, is_red, start_time, time_limit_for_turn, eval_function, tt)
 
             best_move = move

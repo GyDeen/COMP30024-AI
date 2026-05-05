@@ -147,25 +147,50 @@ def calc_safety(friendly_map: dict, enemy_map: dict, is_my_turn: bool) -> float:
 def calc_hunting(friendly_map: dict, enemy_map: dict) -> float:
     score = 0.0
     MAX_DIST = 14.0 
+    
     for f_idx, f_h in friendly_map.items():
-        fr, fc = divmod(f_idx, 8)
+        f_row, f_col = divmod(f_idx, 8)
+
+        # Track the best target to chase, and the scariest threat to flee
+        best_hunt = 0.0 
+        worst_fear = 0.0
+        
         for e_idx, e_h in enemy_map.items():
-            er, ec = divmod(e_idx, 8)
-            dist = abs(fr - er) + abs(fc - ec)
+            e_row, e_col = divmod(e_idx, 8)
+            dist = abs(f_row - e_row) + abs(f_col - e_col)
             size_diff = f_h - e_h
             
+            # PREDATOR LOGIC (We are bigger)
             if size_diff > 0:
-                score += (MAX_DIST - dist) * size_diff
+                effective_diff = min(size_diff, 1)
+                # Scaled down to prevent out-weighing the Material score
+                hunt_val = ((MAX_DIST - dist) / 5.0) * effective_diff
+                if hunt_val > best_hunt:
+                    best_hunt = hunt_val
+                    
+            # PINNING LOGIC (We are equal)
             elif size_diff == 0:
-                if dist == 1:
-                    score -= 30.0 
-                elif dist == 2:
-                    # User update: ONLY reward the hard diagonal pin.
-                    dx, dy = abs(fr - er), abs(fc - ec)
+                if dist == 2:
+                    dx, dy = abs(f_row - e_row), abs(f_col - e_col)
                     if dx == 1 and dy == 1:
-                        score += (MAX_DIST - dist) * 3.0 
+                        # Scaled down hard diagonal pin
+                        hunt_val = ((MAX_DIST - dist) / 5.0) * 1.5
+                        if hunt_val > best_hunt:
+                            best_hunt = hunt_val
+                            
+            # PREY LOGIC (We are smaller)
             elif size_diff < 0:
-                score -= (MAX_DIST - dist) * abs(size_diff)
+                # 1-height tokens are ammo, they don't feel fear.
+                if f_h > 1: 
+                    # The closer the big enemy is, the higher the fear value
+                    fear_val = ((MAX_DIST - dist) / 5.0) 
+                    if fear_val > worst_fear:
+                        worst_fear = fear_val
+                        
+        # Add the desire to chase, subtract the desire to flee
+        score += best_hunt
+        score -= worst_fear
+        
     return score
 # ==============================================================================
 
@@ -173,8 +198,8 @@ def calc_hunting(friendly_map: dict, enemy_map: dict) -> float:
 # Coefficient set up for each aspect for different profiles
 PROFILES = {
     # The Phalanx Series (less emphasis on hunting, more on solid board presence)
-    'phalanx_balanced':   {'material': 0.40, 'safety': 0.20, 'positioning': 0.15, 'alignment': 0.05, 'efficiency': 0.30, 'hunting': 0.00},
-    'phalanx_aggressive': {'material': 0.40, 'safety': 0.25, 'positioning': 0.15, 'alignment': 0.15, 'efficiency': 0.10, 'hunting': 0.00},
+    'phalanx_balanced':   {'material': 0.40, 'safety': 0.20, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.30, 'hunting': 0.10},
+    'phalanx_aggressive': {'material': 0.40, 'safety': 0.25, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.15},
     
     # The Hunt Series
     'hunt_aggressive':    {'material': 0.25, 'safety': 0.15, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15},

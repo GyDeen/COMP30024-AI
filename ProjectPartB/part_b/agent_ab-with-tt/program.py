@@ -62,14 +62,15 @@ class Agent:
         """
         root_color = RED if self._color == PlayerColor.RED else BLUE
         time_remaining = referee.get("time_remaining")
-
+        
+        self.manage_tt_mem()
         if isinstance(time_remaining, (int, float)):
             remaining = float(time_remaining)
         else:
             remaining = 180.0
         if self.board.turn_count < 8:
-            return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.tt)
-        return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.evaluate, self.tt)
+            return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.evaluate, self.tt)
+        return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.evaluate, self.tt)
 
     def update(self, color: PlayerColor, action: Action, **referee: dict):
         """
