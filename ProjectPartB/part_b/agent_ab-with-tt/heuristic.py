@@ -84,16 +84,19 @@ def calc_positioning(friendly_map: dict, enemy_map: dict) -> float:
 def calc_efficiency(friendly_map: dict, enemy_map: dict) -> float:
     f_score = 0.0
     for h in friendly_map.values():
-        if 4 <= h <= 5: f_score += 20.0
-        elif h == 6: f_score -= 20.0
-        elif h > 6: f_score -= 100.0 
-        
+        if h == 1: f_score -= 3.0
+        elif 2 <= h <= 3: f_score += 3.0
+        elif 4 <= h <= 5: f_score += 15.0
+        elif h == 6: f_score -= 10.0
+        elif h > 6: f_score -= (30.0 + ((h - 6) * 10.0))
+
     e_score = 0.0
     for h in enemy_map.values():
-        if 4 <= h <= 5: e_score += 20.0
-        elif h == 6: e_score -= 20.0
-        elif h > 6: e_score -= 100.0 
-        
+        if h == 1: e_score -= 3.0
+        elif 2 <= h <= 3: e_score += 3.0
+        elif 4 <= h <= 5: e_score += 15.0
+        elif h == 6: e_score -= 10.0
+        elif h > 6: e_score -= (30.0 + ((h - 6) * 10.0))
     return f_score - e_score
 
 def calc_alignment(friendly_map: dict) -> float:
@@ -192,19 +195,96 @@ def calc_hunting(friendly_map: dict, enemy_map: dict) -> float:
         score -= worst_fear
         
     return score
+
+def calc_control(friendly_map: dict, enemy_map: dict) -> float:
+    best_anchor_score = 0.0
+    
+    for f_idx, f_h in friendly_map.items():
+        if f_h < 2: continue 
+        
+        fr, fc = divmod(f_idx, 8)
+        current_anchor_score = 0.0
+        
+        for e_idx, e_h in enemy_map.items():
+            valid_moves = 0
+            denied_moves = 0
+            
+            for adj_idx in ADJACENT[e_idx].values():
+                if adj_idx in friendly_map: continue 
+                    
+                valid_moves += 1
+                is_denied = False
+                adj_r, adj_c = divmod(adj_idx, 8)
+                
+                # 1. STRICT PHYSICAL CASCADE SIMULATION
+                # We calculate 'N': The number of pieces between the cannon and the target.
+                # The target's final destination is EXACTLY: cannon + height + N.
+                if fr == adj_r:
+                    if fc < adj_c <= fc + f_h:  # Right
+                        N = 1  # 1 for the enemy target itself
+                        for c in range(fc + 1, adj_c):
+                            if fr * 8 + c in friendly_map or fr * 8 + c in enemy_map: N += 1
+                        if fc + f_h + N >= 8: is_denied = True  # Pushed off the edge!
+                            
+                    elif fc > adj_c >= fc - f_h:  # Left
+                        N = 1
+                        for c in range(fc - 1, adj_c, -1):
+                            if fr * 8 + c in friendly_map or fr * 8 + c in enemy_map: N += 1
+                        if fc - f_h - N < 0: is_denied = True
+                            
+                elif fc == adj_c:
+                    if fr < adj_r <= fr + f_h:  # Down
+                        N = 1
+                        for r in range(fr + 1, adj_r):
+                            if r * 8 + fc in friendly_map or r * 8 + fc in enemy_map: N += 1
+                        if fr + f_h + N >= 8: is_denied = True
+                            
+                    elif fr > adj_r >= fr - f_h:  # Up
+                        N = 1
+                        for r in range(fr - 1, adj_r, -1):
+                            if r * 8 + fc in friendly_map or r * 8 + fc in enemy_map: N += 1
+                        if fr - f_h - N < 0: is_denied = True
+                
+                # 2. Adjacent EAT Threat Check
+                if not is_denied:
+                    for f_adj_idx in ADJACENT[adj_idx].values():
+                        if f_adj_idx in friendly_map and friendly_map[f_adj_idx] >= e_h:
+                            is_denied = True
+                            break
+                                
+                if is_denied:
+                    denied_moves += 1
+                        
+            # 3. The Restriction Reward
+            if valid_moves > 0:
+                # Reward scales based on the height of the enemy being squeezed
+                current_anchor_score += (denied_moves * e_h * 1.0)
+                if denied_moves == valid_moves:
+                    # Checkmate bonus
+                    current_anchor_score += (e_h * 5.0) 
+
+        # Keep only the highest single anchor score
+        if current_anchor_score > best_anchor_score:
+            best_anchor_score = current_anchor_score
+
+    return best_anchor_score
 # ==============================================================================
 
 # ==============================================================================
 # Coefficient set up for each aspect for different profiles
 PROFILES = {
     # The Phalanx Series (less emphasis on hunting, more on solid board presence)
-    'phalanx_balanced':   {'material': 0.40, 'safety': 0.20, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.30, 'hunting': 0.10},
-    'phalanx_aggressive': {'material': 0.40, 'safety': 0.25, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.15},
-    
+    'phalanx_balanced':   {'material': 0.40, 'safety': 0.20, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.30, 'hunting': 0.10, 'control': 0.10},
+    'phalanx_aggressive': {'material': 0.40, 'safety': 0.25, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.15, 'control': 0.15},
+
     # The Hunt Series
-    'hunt_aggressive':    {'material': 0.25, 'safety': 0.15, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15},
-    'hunt_balanced':      {'material': 0.30, 'safety': 0.20, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15},
-    'hunt_defensive':     {'material': 0.30, 'safety': 0.25, 'positioning': 0.20, 'alignment': 0.15, 'efficiency': 0.10, 'hunting': 0.00}
+    'hunt_aggressive':    {'material': 0.25, 'safety': 0.15, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10},
+    'hunt_balanced':      {'material': 0.30, 'safety': 0.20, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10},
+    'hunt_defensive':     {'material': 0.30, 'safety': 0.25, 'positioning': 0.20, 'alignment': 0.15, 'efficiency': 0.10, 'hunting': 0.00, 'control': 0.10},
+
+
+    # The endgame profile, focused on eliminating enemy pieces and securing the win
+    'endgame':            {'material': 0.50, 'safety': 0.30, 'positioning': 0.05, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.20, 'control': 0.00},
 }
 
 
@@ -223,6 +303,7 @@ def evaluate_board(board: BoardState, root_color: int, is_current_turn_red: bool
     if weights['alignment'] > 0:   total_score += calc_alignment(f_map) * weights['alignment']
     if weights['safety'] > 0:      total_score += calc_safety(f_map, e_map, is_my_turn) * weights['safety']
     if weights['hunting'] > 0:     total_score += calc_hunting(f_map, e_map) * weights['hunting']
+    if weights['control'] > 0:   total_score += calc_control(f_map, e_map) * weights['control']
 
     return total_score
 # ==============================================================================
@@ -230,10 +311,14 @@ def evaluate_board(board: BoardState, root_color: int, is_current_turn_red: bool
 # ==============================================================================
 # Evaluation functions that being tested
 def eval0(board: BoardState, root_color: int, is_red: bool) -> float:
-    return evaluate_board(board, root_color, is_red, 'phalanx_balanced')
+    return evaluate_board(board, root_color, is_red, 'phalanx_aggressive')
 
 def eval1(board: BoardState, root_color: int, is_red: bool) -> float:
     return evaluate_board(board, root_color, is_red, 'hunt_balanced')
+
+def end_phase_eval(board: BoardState, root_color: int, is_red: bool) -> float:
+    """Evaluation for the end phase, focused on final positioning and material."""
+    return evaluate_board(board, root_color, is_red, 'endgame')
 
 # ===============================================================================
 
