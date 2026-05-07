@@ -99,7 +99,7 @@ def alphabeta(board: BoardState, depth: int, alpha: float, beta: float, root_col
         raise TimeoutError()
     
     if depth == 0:
-        return eval_function(board, root_color, is_red)
+        return quiescence(board, alpha, beta, root_color, is_max, is_red, start_time, time_limit, eval_function)
     
     original_alpha = alpha
     original_beta = beta
@@ -174,6 +174,56 @@ def alphabeta(board: BoardState, depth: int, alpha: float, beta: float, root_col
     tt[board_key] = (best_score, depth, flag, best_move)
     return best_score
 
+def quiescence(board: BoardState, alpha: float, beta: float, root_color: int,
+              is_max: bool, is_red: bool, start_time: float, time_limit: float, eval_function) -> float:
+    
+    if time.perf_counter() - start_time > time_limit:
+        raise TimeoutError()
+
+    # 1. "Stand Pat" - Evaluate the current board as a baseline
+    stand_pat = eval_function(board, root_color, is_red)
+
+    # 2. Stand Pat Pruning: If the baseline is already causing a cutoff, return immediately!
+    if is_max:
+        if stand_pat >= beta:
+            return beta
+        alpha = max(alpha, stand_pat)
+    else:
+        if stand_pat <= alpha:
+            return alpha
+        beta = min(beta, stand_pat)
+
+    # 3. Only look at noisy moves
+    noisy_moves = generate_noisy_moves(board, is_red=is_red)
+
+    # 4. If there are no noisy moves, the board is stable! Return the score.
+    if not noisy_moves:
+        return stand_pat
+
+    # 5. Otherwise, search the noisy moves to resolve the instability
+    if is_max:
+        best_score = stand_pat
+        for move in noisy_moves:
+            new_board = execute_move(board, move, is_red)
+            score = quiescence(new_board, alpha, beta, root_color, False, not is_red, start_time, time_limit, eval_function)
+            
+            best_score = max(best_score, score)
+            alpha = max(alpha, best_score)
+            if beta <= alpha:
+                break
+        return best_score
+    else:
+        best_score = stand_pat
+        for move in noisy_moves:
+            new_board = execute_move(board, move, is_red)
+            score = quiescence(new_board, alpha, beta, root_color, True, not is_red, start_time, time_limit, eval_function)
+            
+            best_score = min(best_score, score)
+            beta = min(beta, best_score)
+            if beta <= alpha:
+                break
+        return best_score
+
 
 
 def generate_possible_moves(board: BoardState, is_red: bool) -> list[int]:
@@ -231,3 +281,30 @@ def generate_possible_place(board: BoardState, is_red: bool) -> list[int]:
             if can_place:
                 place_moves.append(pack_move(PLACE, idx, idx))
     return place_moves
+
+
+def generate_noisy_moves(board: BoardState, is_red: bool) -> list[int]:
+    """Only generates EAT and CASCADE moves to resolve unstable boards."""
+    noisy_moves = []
+    
+    # During the placing phase, we dont have any noisy move, return directly
+    if board.turn_count < 8:
+        return noisy_moves 
+
+    for start in range(64):
+        if (is_red and board.is_red(start)) or (not is_red and board.is_blue(start)):
+            h = board.get_height(start)
+            
+            for _, target in ADJACENT[start].items():
+                target_empty = board.is_empty(target)
+                target_friendly = (is_red and board.is_red(target)) or (not is_red and board.is_blue(target))
+                
+                # NOISY MOVE 1: EAT
+                if not target_empty and not target_friendly and h >= board.get_height(target):
+                    noisy_moves.append(pack_move(EAT, start, target))
+
+                # NOISY MOVE 2: CASCADE
+                if h >= 2:
+                    noisy_moves.append(pack_move(CASCADE, start, target))
+                    
+    return noisy_moves
