@@ -26,6 +26,11 @@ ACTION_TO_TYPE = {
 RED = 1
 BLUE = 0
 
+# FLAG for TT
+EXACT = 0
+LOWERBOUND = 1
+UPPERBOUND = 2
+
 
 class Agent:
     """
@@ -43,7 +48,7 @@ class Agent:
         self.place_eval = eval_place_co1
         self._turn_count = 0
         self.board = BoardState()
-        self.tt = {}
+        self.tt = {} # values are (score, depth, flag, best_move)
         match color:
             case PlayerColor.RED:
                 print("Testing: I am playing as RED (first player)")
@@ -57,14 +62,15 @@ class Agent:
         """
         root_color = RED if self._color == PlayerColor.RED else BLUE
         time_remaining = referee.get("time_remaining")
-
+        
+        self.manage_tt_mem()
         if isinstance(time_remaining, (int, float)):
             remaining = float(time_remaining)
         else:
             remaining = 180.0
         if self.board.turn_count < 8:
-            return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval)
-        return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.evaluate)
+            return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.tt)
+        return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.evaluate, self.tt)
 
     def update(self, color: PlayerColor, action: Action, **referee: dict):
         """

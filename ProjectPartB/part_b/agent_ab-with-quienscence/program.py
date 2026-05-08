@@ -7,7 +7,7 @@ from referee.game import PlayerColor, Direction, \
 from .board import BoardState
 from .action import pack_move, execute_move
 from .search import get_best_move
-from .heuristic import eval1, eval_place_co1
+from .heuristic import eval0, eval_L_place, end_phase_eval
 
 DIR_TO_OFFSET = {
     Direction.Up: -8,
@@ -44,8 +44,9 @@ class Agent:
         Any setup and/or precomputation should be done here.
         """
         self._color = color
-        self.evaluate = eval1
-        self.place_eval = eval_place_co1
+        self.evaluate = eval0
+        self.end_phase_eval = end_phase_eval
+        self.place_eval = eval_L_place
         self._turn_count = 0
         self.board = BoardState()
         self.tt = {} # values are (score, depth, flag, best_move)
@@ -62,14 +63,15 @@ class Agent:
         """
         root_color = RED if self._color == PlayerColor.RED else BLUE
         time_remaining = referee.get("time_remaining")
-
+        
+        self.manage_tt_mem()
         if isinstance(time_remaining, (int, float)):
             remaining = float(time_remaining)
         else:
             remaining = 180.0
         if self.board.turn_count < 8:
-            return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.tt)
-        return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.evaluate, self.tt)
+            return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.evaluate, self.tt)
+        return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.evaluate, self.tt)
 
     def update(self, color: PlayerColor, action: Action, **referee: dict):
         """
