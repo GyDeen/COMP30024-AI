@@ -66,14 +66,14 @@ def calc_material(friendly_map: dict, enemy_map: dict) -> float:
 
 def calc_positioning(friendly_map: dict, enemy_map: dict) -> float:
     score = 0.0
-    # Friendly positioning (plus Artillery bonus)
+    # Friendly positioning 
     for idx, h in friendly_map.items():
         weight = CENTER_WEIGHTS[idx]
         score += (weight * h / 2.0)
         if 4 <= h <= 5 and weight >= 3:
             score += (h * weight * 1.5)
             
-    # Enemy positioning (plus Artillery penalty)
+    # Enemy positioning 
     for idx, h in enemy_map.items():
         weight = CENTER_WEIGHTS[idx]
         score -= (weight * h / 2.0)
@@ -84,16 +84,16 @@ def calc_positioning(friendly_map: dict, enemy_map: dict) -> float:
 def calc_efficiency(friendly_map: dict, enemy_map: dict) -> float:
     f_score = 0.0
     for h in friendly_map.values():
-        if h == 1: f_score -= 3.0
-        elif 2 <= h <= 3: f_score += 3.0
+        # if h == 1: f_score -= 3.0
+        if 2 <= h <= 3: f_score += 3.0
         elif 4 <= h <= 5: f_score += 15.0
         elif h == 6: f_score -= 10.0
         elif h > 6: f_score -= (30.0 + ((h - 6) * 10.0))
 
     e_score = 0.0
     for h in enemy_map.values():
-        if h == 1: e_score -= 3.0
-        elif 2 <= h <= 3: e_score += 3.0
+        # if h == 1: e_score -= 3.0
+        if 2 <= h <= 3: e_score += 3.0
         elif 4 <= h <= 5: e_score += 15.0
         elif h == 6: e_score -= 10.0
         elif h > 6: e_score -= (30.0 + ((h - 6) * 10.0))
@@ -163,7 +163,7 @@ def calc_hunting(friendly_map: dict, enemy_map: dict) -> float:
             dist = abs(f_row - e_row) + abs(f_col - e_col)
             size_diff = f_h - e_h
             
-            # PREDATOR LOGIC (We are bigger)
+            # We can eat it, try to go adjacent with it
             if size_diff > 0:
                 effective_diff = min(size_diff, 1)
                 # Scaled down to prevent out-weighing the Material score
@@ -171,22 +171,23 @@ def calc_hunting(friendly_map: dict, enemy_map: dict) -> float:
                 if hunt_val > best_hunt:
                     best_hunt = hunt_val
                     
-            # PINNING LOGIC (We are equal)
+            # If we are the same size, we can restrict it by taking the diagonal position, which locks it avaialbale move
             elif size_diff == 0:
                 if dist == 2:
                     dx, dy = abs(f_row - e_row), abs(f_col - e_col)
                     if dx == 1 and dy == 1:
-                        # Scaled down hard diagonal pin
+                        # Scaled down hard diagonal pin to 
                         hunt_val = ((MAX_DIST - dist) / 5.0) * 1.5
                         if hunt_val > best_hunt:
                             best_hunt = hunt_val
                             
-            # PREY LOGIC (We are smaller)
+            # We are smaller, try to get away from it
             elif size_diff < 0:
-                # 1-height tokens are ammo, they don't feel fear.
+                # Height one friendly piece isn't carrying too many value, just pass 
                 if f_h > 1: 
                     # The closer the big enemy is, the higher the fear value
-                    fear_val = ((MAX_DIST - dist) / 5.0) 
+                    # The higher the friendly piece, the more we care about it, but we cap the fear to prevent it from out-weighing the Material score
+                    fear_val = ((MAX_DIST - dist) * f_h / 5.0) 
                     if fear_val > worst_fear:
                         worst_fear = fear_val
                         
@@ -216,15 +217,13 @@ def calc_control(friendly_map: dict, enemy_map: dict) -> float:
                 is_denied = False
                 adj_r, adj_c = divmod(adj_idx, 8)
                 
-                # 1. STRICT PHYSICAL CASCADE SIMULATION
-                # We calculate 'N': The number of pieces between the cannon and the target.
-                # The target's final destination is EXACTLY: cannon + height + N.
+                # Simulating the push to see whether it can push off any other piece that on the same row or column
                 if fr == adj_r:
                     if fc < adj_c <= fc + f_h:  # Right
-                        N = 1  # 1 for the enemy target itself
+                        N = 1  
                         for c in range(fc + 1, adj_c):
                             if fr * 8 + c in friendly_map or fr * 8 + c in enemy_map: N += 1
-                        if fc + f_h + N >= 8: is_denied = True  # Pushed off the edge!
+                        if fc + f_h + N >= 8: is_denied = True 
                             
                     elif fc > adj_c >= fc - f_h:  # Left
                         N = 1
@@ -245,7 +244,7 @@ def calc_control(friendly_map: dict, enemy_map: dict) -> float:
                             if r * 8 + fc in friendly_map or r * 8 + fc in enemy_map: N += 1
                         if fr - f_h - N < 0: is_denied = True
                 
-                # 2. Adjacent EAT Threat Check
+                # Adjacent EAT Threat Check
                 if not is_denied:
                     for f_adj_idx in ADJACENT[adj_idx].values():
                         if f_adj_idx in friendly_map and friendly_map[f_adj_idx] >= e_h:
@@ -255,13 +254,13 @@ def calc_control(friendly_map: dict, enemy_map: dict) -> float:
                 if is_denied:
                     denied_moves += 1
                         
-            # 3. The Restriction Reward
+            # The Restriction Reward
             if valid_moves > 0:
                 # Reward scales based on the height of the enemy being squeezed
                 current_anchor_score += (denied_moves * e_h * 1.0)
                 if denied_moves == valid_moves:
-                    # Checkmate bonus
-                    current_anchor_score += (e_h * 5.0) 
+                    # Enemy has to move into a position that will be eliminated, reward it based on the enemy height will be eliminated
+                    current_anchor_score += (e_h * 5.0)
 
         # Keep only the highest single anchor score
         if current_anchor_score > best_anchor_score:
@@ -275,7 +274,7 @@ def calc_control(friendly_map: dict, enemy_map: dict) -> float:
 PROFILES = {
     # The Phalanx Series (less emphasis on hunting, more on solid board presence)
     'phalanx_balanced':   {'material': 0.40, 'safety': 0.20, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.30, 'hunting': 0.10, 'control': 0.10},
-    'phalanx_aggressive': {'material': 0.40, 'safety': 0.25, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.15, 'control': 0.15},
+    'phalanx_aggressive': {'material': 0.40, 'safety': 0.00, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.15, 'control': 0.15},
 
     # The Hunt Series
     'hunt_aggressive':    {'material': 0.25, 'safety': 0.15, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10},
@@ -284,7 +283,7 @@ PROFILES = {
 
 
     # The endgame profile, focused on eliminating enemy pieces and securing the win
-    'endgame':            {'material': 0.50, 'safety': 0.30, 'positioning': 0.05, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.20, 'control': 0.00},
+    'endgame':            {'material': 0.50, 'safety': 0.15, 'positioning': 0.05, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.20, 'control': 0.00},
 }
 
 

@@ -180,29 +180,28 @@ def quiescence(board: BoardState, alpha: float, beta: float, root_color: int,
     if time.perf_counter() - start_time > time_limit:
         raise TimeoutError()
 
-    # 1. "Stand Pat" - Evaluate the current board as a baseline
-    stand_pat = eval_function(board, root_color, is_red)
+    base_line = eval_function(board, root_color, is_red)
 
-    # 2. Stand Pat Pruning: If the baseline is already causing a cutoff, return immediately!
+    # If the baseline is already causing a cutoff, return immediately
     if is_max:
-        if stand_pat >= beta:
+        if base_line >= beta:
             return beta
-        alpha = max(alpha, stand_pat)
+        alpha = max(alpha, base_line)
     else:
-        if stand_pat <= alpha:
+        if base_line <= alpha:
             return alpha
-        beta = min(beta, stand_pat)
+        beta = min(beta, base_line)
 
-    # 3. Only look at noisy moves
+    # Look at noisy moves
     noisy_moves = generate_noisy_moves(board, is_red=is_red)
 
-    # 4. If there are no noisy moves, the board is stable! Return the score.
+    # If there are no noisy moves, the board is stable
     if not noisy_moves:
-        return stand_pat
+        return base_line
 
-    # 5. Otherwise, search the noisy moves to resolve the instability
+    # Search the all the noisy moves, and keep doing quiescence search until we reach a stable board
     if is_max:
-        best_score = stand_pat
+        best_score = base_line
         for move in noisy_moves:
             new_board = execute_move(board, move, is_red)
             score = quiescence(new_board, alpha, beta, root_color, False, not is_red, start_time, time_limit, eval_function)
@@ -213,7 +212,7 @@ def quiescence(board: BoardState, alpha: float, beta: float, root_color: int,
                 break
         return best_score
     else:
-        best_score = stand_pat
+        best_score = base_line
         for move in noisy_moves:
             new_board = execute_move(board, move, is_red)
             score = quiescence(new_board, alpha, beta, root_color, True, not is_red, start_time, time_limit, eval_function)
@@ -284,27 +283,27 @@ def generate_possible_place(board: BoardState, is_red: bool) -> list[int]:
 
 
 def generate_noisy_moves(board: BoardState, is_red: bool) -> list[int]:
-    """Only generates EAT and CASCADE moves to resolve unstable boards."""
+    """Only generates EAT moves to resolve unstable boards."""
     noisy_moves = []
     
     # During the placing phase, we dont have any noisy move, return directly
     if board.turn_count < 8:
         return noisy_moves 
 
-    for start in range(64):
-        if (is_red and board.is_red(start)) or (not is_red and board.is_blue(start)):
-            h = board.get_height(start)
+    for position in range(64):
+        if (is_red and board.is_red(position)) or (not is_red and board.is_blue(position)):
+            h = board.get_height(position)
             
-            for _, target in ADJACENT[start].items():
+            for _, target in ADJACENT[position].items():
                 target_empty = board.is_empty(target)
                 target_friendly = (is_red and board.is_red(target)) or (not is_red and board.is_blue(target))
                 
-                # NOISY MOVE 1: EAT
+                # Noisy Move directly Eat
                 if not target_empty and not target_friendly and h >= board.get_height(target):
-                    noisy_moves.append(pack_move(EAT, start, target))
+                    noisy_moves.append(pack_move(EAT, position, target))
 
-                # NOISY MOVE 2: CASCADE
-                if h >= 2:
-                    noisy_moves.append(pack_move(CASCADE, start, target))
+                # # NOISY MOVE 2: CASCADE
+                # if h >= 2:
+                #     noisy_moves.append(pack_move(CASCADE, start, target))
                     
     return noisy_moves

@@ -7,7 +7,7 @@ from referee.game import PlayerColor, Direction, \
 from .board import BoardState
 from .action import pack_move, execute_move
 from .search import get_best_move
-from .heuristic import eval0, eval_L_place
+from .heuristic import eval0, eval_L_place, end_phase_eval
 
 DIR_TO_OFFSET = {
     Direction.Up: -8,
@@ -45,6 +45,7 @@ class Agent:
         """
         self._color = color
         self.evaluate = eval0
+        self.end_phase_eval = end_phase_eval
         self.place_eval = eval_L_place
         self._turn_count = 0
         self.board = BoardState()
