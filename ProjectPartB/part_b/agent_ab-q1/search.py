@@ -315,8 +315,11 @@ def _rule_based_placement(board: BoardState, is_red: bool) -> int:
 
 def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaining: float, 
                   place_eval_func, move_eval_func, tt: dict) -> Action:
-    time_limit_for_turn = min(time_remaining / 40.0, 3.0)
-    is_placing = board.turn_count < 8
+    if not time_remaining:
+        time_limit_for_turn = 8
+    else:
+        time_limit_for_turn = min(time_remaining / 40.0, 3.0)
+        is_placing = board.turn_count < 8
 
     if time_remaining < 5.0:
         time_limit_for_turn = 0.2

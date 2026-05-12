@@ -83,20 +83,39 @@ def calc_positioning(friendly_map: dict, enemy_map: dict) -> float:
 
 def calc_efficiency(friendly_map: dict, enemy_map: dict) -> float:
     f_score = 0.0
-    for h in friendly_map.values():
-        # if h == 1: f_score -= 3.0
+    for f_idx, h in friendly_map.items():
+        r, c = divmod(f_idx, 8)
+        
+        # Calculate the absolute furthest edge from this specific square
+        max_useful_height = max(r, 7 - r, c, 7 - c)
+        
+        # Prefer height of 4 or 5
         if 2 <= h <= 3: f_score += 3.0
-        elif 4 <= h <= 5: f_score += 15.0
+        elif 4 <= h < 5: f_score += 15.0
+        elif h == 5: f_score += 5.0
         elif h == 6: f_score -= 10.0
         elif h > 6: f_score -= (30.0 + ((h - 6) * 10.0))
+        
+        # If the stack is taller than its furthest reach, penalize the wasted tokens!
+        if h > max_useful_height:
+            redundant_tokens = h - max_useful_height
+            f_score -= (redundant_tokens * 10.0) 
 
     e_score = 0.0
-    for h in enemy_map.values():
-        # if h == 1: e_score -= 3.0
+    for e_idx, h in enemy_map.items():
+        r, c = divmod(e_idx, 8)
+        max_useful_height = max(r, 7 - r, c, 7 - c)
+
         if 2 <= h <= 3: e_score += 3.0
-        elif 4 <= h <= 5: e_score += 15.0
+        elif 4 <= h < 5: e_score += 15.0
+        elif h == 5: e_score += 5.0
         elif h == 6: e_score -= 10.0
         elif h > 6: e_score -= (30.0 + ((h - 6) * 10.0))
+        
+        if h > max_useful_height:
+            redundant_tokens = h - max_useful_height
+            e_score -= (redundant_tokens * 15.0)
+
     return f_score - e_score
 
 def calc_alignment(friendly_map: dict) -> float:
@@ -118,6 +137,53 @@ def calc_alignment(friendly_map: dict) -> float:
                     score += 5.0
     return score
 
+def calc_threat(friendly_map: dict, enemy_map: dict, is_my_turn: bool) -> float:
+    """Rewards the AI for actively projecting lethal threats (EAT or CASCADE) onto enemy stacks."""
+    score = 0.0
+    for f_idx, f_h in friendly_map.items():
+        fr, fc = divmod(f_idx, 8)
+        
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            # Threat A: Direct EAT
+            adj_r, adj_c = fr + dr, fc + dc
+            if 0 <= adj_r < 8 and 0 <= adj_c < 8:
+                adj_idx = adj_r * 8 + adj_c
+                if adj_idx in enemy_map and f_h >= enemy_map[adj_idx]:
+                    target_h = enemy_map[adj_idx]
+                    
+                    # If it is our turn, this is an immediate kill
+                    # If it is their turn, this forces them to waste a turn running away 
+                    score += (target_h * 10.0) if is_my_turn else (target_h * 2.0)
+
+            # Threat B: CASCADE Push
+            if f_h >= 2:
+                pieces_in_line = 0 
+                for step in range(1, f_h + 1):
+                    tr, tc = fr + (dr * step), fc + (dc * step)
+
+                    # Calculate how many of OUR tokens we lose if we cascade
+                    our_tokens_lost = 0
+                    if not (0 <= tr < 8 and 0 <= tc < 8):
+                        our_tokens_lost = (f_h + 1) - step
+                        break # The rest of the cascade falls off the board
+                        
+                    t_idx = tr * 8 + tc
+                    if t_idx in friendly_map or t_idx in enemy_map:
+                        pieces_in_line += 1
+                        push_r, push_c = fr + (dr * (f_h + pieces_in_line)), fc + (dc * (f_h + pieces_in_line))
+                        
+                        # Check if the enemy gets pushed off
+                        if not (0 <= push_r < 8 and 0 <= push_c < 8):
+                            if t_idx in enemy_map:
+                                target_h = enemy_map[t_idx]
+                                
+                                # THE TRADE MATH
+                                # We only consider this a valid threat if we win the material trade!
+                                if target_h > our_tokens_lost:
+                                    net_gain = target_h - our_tokens_lost
+                                    score += (net_gain * 10.0) if is_my_turn else (net_gain * 2.0)
+    return score
+
 def calc_safety(friendly_map: dict, enemy_map: dict, is_my_turn: bool) -> float:
     score = 0.0
     for e_idx, e_h in enemy_map.items():
@@ -132,6 +198,8 @@ def calc_safety(friendly_map: dict, enemy_map: dict, is_my_turn: bool) -> float:
                     score -= (threat_h * 2.0) if is_my_turn else (threat_h * 10.0)
             
             # Threat B: CASCADE Push
+            if e_h < 2:
+                break
             f_in_line = 0 
             for step in range(1, e_h + 1):
                 tr, tc = er + (dr * step), ec + (dc * step)
@@ -273,17 +341,17 @@ def calc_control(friendly_map: dict, enemy_map: dict) -> float:
 # Coefficient set up for each aspect for different profiles
 PROFILES = {
     # The Phalanx Series (less emphasis on hunting, more on solid board presence)
-    'phalanx_balanced':   {'material': 0.40, 'safety': 0.20, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.30, 'hunting': 0.10, 'control': 0.10},
-    'phalanx_aggressive': {'material': 0.40, 'safety': 0.00, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.15, 'control': 0.15},
+    'phalanx_balanced':   {'material': 0.40, 'threaten_enemy': 0.10, 'safety': 0.20, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.30, 'hunting': 0.10, 'control': 0.10},
+    'phalanx_aggressive': {'material': 0.40, 'threaten_enemy': 0.20, 'safety': 0.10, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.20, 'control': 0.15},
 
     # The Hunt Series
-    'hunt_aggressive':    {'material': 0.25, 'safety': 0.15, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10},
-    'hunt_balanced':      {'material': 0.30, 'safety': 0.20, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10},
-    'hunt_defensive':     {'material': 0.30, 'safety': 0.25, 'positioning': 0.20, 'alignment': 0.15, 'efficiency': 0.10, 'hunting': 0.00, 'control': 0.10},
+    'hunt_aggressive':    {'material': 0.25, 'threaten_enemy': 0.20, 'safety': 0.15, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10},
+    'hunt_balanced':      {'material': 0.30, 'threaten_enemy': 0.10, 'safety': 0.20, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10},
+    'hunt_defensive':     {'material': 0.30, 'threaten_enemy': 0.05, 'safety': 0.25, 'positioning': 0.20, 'alignment': 0.15, 'efficiency': 0.10, 'hunting': 0.00, 'control': 0.10},
 
 
     # The endgame profile, focused on eliminating enemy pieces and securing the win
-    'endgame':            {'material': 0.50, 'safety': 0.15, 'positioning': 0.05, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.20, 'control': 0.00},
+    'endgame':            {'material': 0.50, 'threaten_enemy': 0.00, 'safety': 0.15, 'positioning': 0.05, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.20, 'control': 0.00},
 }
 
 
@@ -300,6 +368,7 @@ def evaluate_board(board: BoardState, root_color: int, is_current_turn_red: bool
     if weights['positioning'] > 0: total_score += calc_positioning(f_map, e_map) * weights['positioning']
     if weights['efficiency'] > 0:  total_score += calc_efficiency(f_map, e_map) * weights['efficiency']
     if weights['alignment'] > 0:   total_score += calc_alignment(f_map) * weights['alignment']
+    if weights['threaten_enemy'] > 0: total_score += calc_threat(f_map, e_map, is_my_turn) * weights['threaten_enemy']
     if weights['safety'] > 0:      total_score += calc_safety(f_map, e_map, is_my_turn) * weights['safety']
     if weights['hunting'] > 0:     total_score += calc_hunting(f_map, e_map) * weights['hunting']
     if weights['control'] > 0:   total_score += calc_control(f_map, e_map) * weights['control']
