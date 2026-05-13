@@ -9,6 +9,12 @@ BLUE = 0
 # The 4 center cells where we want the L's elbow (merge target)
 CENTER_4 = frozenset({27, 28, 35, 36})  # (3,3), (3,4), (4,3), (4,4)
 
+# The user-required inner 4x4 square: rows 2-5, cols 2-5.
+# All placement tokens must end up inside this box.
+INNER_SQUARE = frozenset(
+    r * 8 + c for r in range(2, 6) for c in range(2, 6)
+)  # 16 cells from (2,2) through (5,5)
+
 
 # Center control weights
 CENTER_WEIGHTS = [
@@ -66,14 +72,14 @@ def calc_material(friendly_map: dict, enemy_map: dict) -> float:
 
 def calc_positioning(friendly_map: dict, enemy_map: dict) -> float:
     score = 0.0
-    # Friendly positioning (plus Artillery bonus)
+    # Friendly positioning 
     for idx, h in friendly_map.items():
         weight = CENTER_WEIGHTS[idx]
         score += (weight * h / 2.0)
         if 4 <= h <= 5 and weight >= 3:
             score += (h * weight * 1.5)
             
-    # Enemy positioning (plus Artillery penalty)
+    # Enemy positioning 
     for idx, h in enemy_map.items():
         weight = CENTER_WEIGHTS[idx]
         score -= (weight * h / 2.0)
@@ -84,16 +90,16 @@ def calc_positioning(friendly_map: dict, enemy_map: dict) -> float:
 def calc_efficiency(friendly_map: dict, enemy_map: dict) -> float:
     f_score = 0.0
     for h in friendly_map.values():
-        if h == 1: f_score -= 3.0
-        elif 2 <= h <= 3: f_score += 3.0
+        # if h == 1: f_score -= 3.0
+        if 2 <= h <= 3: f_score += 3.0
         elif 4 <= h <= 5: f_score += 15.0
         elif h == 6: f_score -= 10.0
         elif h > 6: f_score -= (30.0 + ((h - 6) * 10.0))
 
     e_score = 0.0
     for h in enemy_map.values():
-        if h == 1: e_score -= 3.0
-        elif 2 <= h <= 3: e_score += 3.0
+        # if h == 1: e_score -= 3.0
+        if 2 <= h <= 3: e_score += 3.0
         elif 4 <= h <= 5: e_score += 15.0
         elif h == 6: e_score -= 10.0
         elif h > 6: e_score -= (30.0 + ((h - 6) * 10.0))
@@ -163,7 +169,7 @@ def calc_hunting(friendly_map: dict, enemy_map: dict) -> float:
             dist = abs(f_row - e_row) + abs(f_col - e_col)
             size_diff = f_h - e_h
             
-            # PREDATOR LOGIC (We are bigger)
+            # We can eat it, try to go adjacent with it
             if size_diff > 0:
                 effective_diff = min(size_diff, 1)
                 # Scaled down to prevent out-weighing the Material score
@@ -171,22 +177,23 @@ def calc_hunting(friendly_map: dict, enemy_map: dict) -> float:
                 if hunt_val > best_hunt:
                     best_hunt = hunt_val
                     
-            # PINNING LOGIC (We are equal)
+            # If we are the same size, we can restrict it by taking the diagonal position, which locks it avaialbale move
             elif size_diff == 0:
                 if dist == 2:
                     dx, dy = abs(f_row - e_row), abs(f_col - e_col)
                     if dx == 1 and dy == 1:
-                        # Scaled down hard diagonal pin
+                        # Scaled down hard diagonal pin to 
                         hunt_val = ((MAX_DIST - dist) / 5.0) * 1.5
                         if hunt_val > best_hunt:
                             best_hunt = hunt_val
                             
-            # PREY LOGIC (We are smaller)
+            # We are smaller, try to get away from it
             elif size_diff < 0:
-                # 1-height tokens are ammo, they don't feel fear.
+                # Height one friendly piece isn't carrying too many value, just pass 
                 if f_h > 1: 
                     # The closer the big enemy is, the higher the fear value
-                    fear_val = ((MAX_DIST - dist) / 5.0) 
+                    # The higher the friendly piece, the more we care about it, but we cap the fear to prevent it from out-weighing the Material score
+                    fear_val = ((MAX_DIST - dist) * f_h / 5.0) 
                     if fear_val > worst_fear:
                         worst_fear = fear_val
                         
@@ -216,15 +223,13 @@ def calc_control(friendly_map: dict, enemy_map: dict) -> float:
                 is_denied = False
                 adj_r, adj_c = divmod(adj_idx, 8)
                 
-                # 1. STRICT PHYSICAL CASCADE SIMULATION
-                # We calculate 'N': The number of pieces between the cannon and the target.
-                # The target's final destination is EXACTLY: cannon + height + N.
+                # Simulating the push to see whether it can push off any other piece that on the same row or column
                 if fr == adj_r:
                     if fc < adj_c <= fc + f_h:  # Right
-                        N = 1  # 1 for the enemy target itself
+                        N = 1  
                         for c in range(fc + 1, adj_c):
                             if fr * 8 + c in friendly_map or fr * 8 + c in enemy_map: N += 1
-                        if fc + f_h + N >= 8: is_denied = True  # Pushed off the edge!
+                        if fc + f_h + N >= 8: is_denied = True 
                             
                     elif fc > adj_c >= fc - f_h:  # Left
                         N = 1
@@ -245,7 +250,7 @@ def calc_control(friendly_map: dict, enemy_map: dict) -> float:
                             if r * 8 + fc in friendly_map or r * 8 + fc in enemy_map: N += 1
                         if fr - f_h - N < 0: is_denied = True
                 
-                # 2. Adjacent EAT Threat Check
+                # Adjacent EAT Threat Check
                 if not is_denied:
                     for f_adj_idx in ADJACENT[adj_idx].values():
                         if f_adj_idx in friendly_map and friendly_map[f_adj_idx] >= e_h:
@@ -255,13 +260,13 @@ def calc_control(friendly_map: dict, enemy_map: dict) -> float:
                 if is_denied:
                     denied_moves += 1
                         
-            # 3. The Restriction Reward
+            # The Restriction Reward
             if valid_moves > 0:
                 # Reward scales based on the height of the enemy being squeezed
                 current_anchor_score += (denied_moves * e_h * 1.0)
                 if denied_moves == valid_moves:
-                    # Checkmate bonus
-                    current_anchor_score += (e_h * 5.0) 
+                    # Enemy has to move into a position that will be eliminated, reward it based on the enemy height will be eliminated
+                    current_anchor_score += (e_h * 5.0)
 
         # Keep only the highest single anchor score
         if current_anchor_score > best_anchor_score:
@@ -270,262 +275,32 @@ def calc_control(friendly_map: dict, enemy_map: dict) -> float:
     return best_anchor_score
 # ==============================================================================
 
-
-# ==============================================================================
-# Closeout / anti-draw features
-# ===============================================================================
-CORNERS = (0, 7, 56, 63)
-CENTER_CELLS = (27, 28, 35, 36)
-
-
-def _dist_to_center(idx: int) -> int:
-    return min(MANHATTAN[idx][c] for c in CENTER_CELLS)
-
-
-def _dist_to_corner(idx: int) -> int:
-    return min(MANHATTAN[idx][c] for c in CORNERS)
-
-
-def _is_attacked_by(friendly_map: dict, cell: int, target_h: int) -> bool:
-    """True if a friendly stack can immediately eat a target of height target_h on cell."""
-    for nb in ADJACENT[cell].values():
-        if nb in friendly_map and friendly_map[nb] >= target_h:
-            return True
-    return False
-
-
-def _safe_escape_count_for_enemy(enemy_idx: int, enemy_h: int,
-                                 friendly_map: dict, enemy_map: dict) -> int:
-    """
-    Approximate how many useful safe moves the enemy stack still has.
-    Lower is better for us. Escapes back toward centre / away from edge count more.
-    """
-    current_center = _dist_to_center(enemy_idx)
-    current_edge = EDGE_DIST[enemy_idx]
-    count = 0
-
-    for nb in ADJACENT[enemy_idx].values():
-        # Enemy cannot safely move into our occupied cell.
-        if nb in friendly_map:
-            continue
-
-        # If we can immediately eat them after they move there, not safe.
-        if _is_attacked_by(friendly_map, nb, enemy_h):
-            continue
-
-        next_center = _dist_to_center(nb)
-        next_edge = EDGE_DIST[nb]
-
-        # Returning to centre / away from edge is the escape we most want to deny.
-        if next_center < current_center:
-            count += 2
-        elif next_edge > current_edge:
-            count += 2
-        else:
-            count += 1
-
-    return count
-
-
-def calc_closeout(friendly_map: dict, enemy_map: dict) -> float:
-    """
-    Anti-draw closeout score.
-    When ahead, reward positions that cut off enemy safe moves and force edge/corner traps.
-    """
-    if not friendly_map or not enemy_map:
-        return 0.0
-
-    my_tokens = sum(friendly_map.values())
-    enemy_tokens = sum(enemy_map.values())
-    total = my_tokens + enemy_tokens
-    if total <= 0:
-        return 0.0
-
-    advantage = (my_tokens - enemy_tokens) / total
-    late_factor = max(0.0, 1.0 - total / 18.0)
-    closeout_mode = advantage > 0.05 and (late_factor > 0.15 or len(enemy_map) <= 3 or enemy_tokens <= 7)
-    if not closeout_mode:
-        return 0.0
-
-    score = 0.0
-    my_max_h = max(friendly_map.values())
-
-    for e_idx, e_h in enemy_map.items():
-        safe = _safe_escape_count_for_enemy(e_idx, e_h, friendly_map, enemy_map)
-        edge_pressure = max(0, 3 - EDGE_DIST[e_idx])
-        corner_pressure = max(0, 4 - _dist_to_corner(e_idx))
-        center_escape = _dist_to_center(e_idx)
-
-        # Fewer safe escapes means closer to a forced kill.
-        score += (5 - safe) * e_h * 5.0
-
-        if safe <= 1:
-            score += e_h * 25.0
-        elif safe == 2:
-            score += e_h * 10.0
-
-        # Edge/corner pressure matters most when we have a nearby stack that can threaten.
-        nearest_threat_dist = 99
-        nearest_threat_h = 0
-        for f_idx, f_h in friendly_map.items():
-            if f_h >= e_h:
-                d = MANHATTAN[f_idx][e_idx]
-                if d < nearest_threat_dist:
-                    nearest_threat_dist = d
-                    nearest_threat_h = f_h
-
-        if nearest_threat_dist < 99:
-            score += edge_pressure * e_h * 4.0
-            score += corner_pressure * e_h * 6.0
-            score += max(0, 8 - nearest_threat_dist) * 2.5
-
-            # Stand between enemy and centre: this prevents endless running.
-            for f_idx, f_h in friendly_map.items():
-                if f_h < e_h:
-                    continue
-                if _dist_to_center(f_idx) <= _dist_to_center(e_idx) and MANHATTAN[f_idx][e_idx] <= 3:
-                    score += e_h * 5.0
-
-            if nearest_threat_h >= e_h + 2:
-                score += e_h * 8.0
-
-        # Enemy far from centre while we are ahead is good; keep pushing outward.
-        score += center_escape * e_h * 1.5
-
-    # As the game gets later / opponent has fewer stacks, scale closeout harder.
-    scale = 1.0 + late_factor * 1.5
-    if len(enemy_map) <= 2:
-        scale += 0.8
-    if len(enemy_map) <= 1:
-        scale += 1.0
-
-    return score * scale
-
-
-def calc_max_height_control(friendly_map: dict, enemy_map: dict) -> float:
-    """
-    Keep the intended height policy:
-      h4 = ideal weapon
-      h5 = okay only in final winning stage
-      h6+ = overstacking unless it is actively finishing.
-    Positive score is good for us.
-    """
-    my_tokens = sum(friendly_map.values())
-    enemy_tokens = sum(enemy_map.values())
-    total = my_tokens + enemy_tokens
-    if total <= 0:
-        return 0.0
-
-    advantage = (my_tokens - enemy_tokens) / total
-    late_factor = max(0.0, 1.0 - total / 18.0)
-    final_stage = advantage > 0.15 and late_factor > 0.35 and len(enemy_map) <= 1
-
-    score = 0.0
-    for h in friendly_map.values():
-        if h <= 4:
-            continue
-        if h == 5:
-            score += 8.0 if final_stage else -22.0
-        else:
-            score -= 45.0 + (h - 5) * 35.0
-
-    for h in enemy_map.values():
-        if h <= 4:
-            continue
-        if h == 5:
-            score += 12.0 if not final_stage else -5.0
-        else:
-            score += 35.0 + (h - 5) * 25.0
-
-    return score
-
-
-def calc_two_stack_closeout(friendly_map: dict, enemy_map: dict) -> float:
-    """
-    Keep at least two friendly stacks during chase/closeout.
-
-    A single tall stack can look good materially, but it often causes the exact
-    draw pattern we saw: one stack follows while the enemy keeps bouncing.
-    Two stacks let us cut off the centre and threaten from another direction.
-    """
-    if not friendly_map or not enemy_map:
-        return 0.0
-
-    my_tokens = sum(friendly_map.values())
-    enemy_tokens = sum(enemy_map.values())
-    total = my_tokens + enemy_tokens
-    if total <= 0:
-        return 0.0
-
-    advantage = (my_tokens - enemy_tokens) / total
-    late_factor = max(0.0, 1.0 - total / 18.0)
-    closeout_mode = advantage > 0.05 and (late_factor > 0.15 or len(enemy_map) <= 3 or enemy_tokens <= 7)
-    if not closeout_mode:
-        return 0.0
-
-    count = len(friendly_map)
-    heights = sorted(friendly_map.values(), reverse=True)
-    score = 0.0
-
-    if count <= 1:
-        # Huge penalty: do not reduce to a lone chaser while the opponent survives.
-        score -= 260.0
-        if heights and heights[0] >= 5:
-            score -= 80.0
-    elif count == 2:
-        score += 140.0
-    elif count == 3:
-        score += 90.0
-    else:
-        score += 35.0
-
-    # Ideal closeout shape: one h3/h4/h5 chaser + one smaller blocker/cutter.
-    if count >= 2:
-        if heights[0] >= 3:
-            score += 45.0
-        if heights[0] == 4:
-            score += 45.0
-        if heights[0] == 5 and len(enemy_map) <= 1:
-            score += 20.0
-        if heights[1] >= 1:
-            score += 35.0
-        if heights[1] >= 2:
-            score += 20.0
-
-    return score * (1.0 + late_factor)
-
 # ==============================================================================
 # Coefficient set up for each aspect for different profiles
 PROFILES = {
     # The Phalanx Series (less emphasis on hunting, more on solid board presence)
-    'phalanx_balanced':   {'material': 0.40, 'safety': 0.20, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.30, 'hunting': 0.10, 'control': 0.10, 'closeout': 0.55, 'max_height': 1.00, 'two_stack': 1.00},
-    'phalanx_aggressive': {'material': 0.40, 'safety': 0.20, 'positioning': 0.12, 'alignment': 0.00, 'efficiency': 0.08, 'hunting': 0.18, 'control': 0.20, 'closeout': 0.90, 'max_height': 1.00, 'two_stack': 1.00},
+    'phalanx_balanced':   {'material': 0.40, 'safety': 0.20, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.30, 'hunting': 0.10, 'control': 0.10},
+    'phalanx_aggressive': {'material': 0.40, 'safety': 0.00, 'positioning': 0.15, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.15, 'control': 0.15},
 
     # The Hunt Series
-    'hunt_aggressive':    {'material': 0.25, 'safety': 0.15, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10, 'closeout': 0.80, 'max_height': 1.00, 'two_stack': 1.00},
-    'hunt_balanced':      {'material': 0.30, 'safety': 0.18, 'positioning': 0.10, 'alignment': 0.15, 'efficiency': 0.12, 'hunting': 0.18, 'control': 0.18, 'closeout': 0.85, 'max_height': 1.00, 'two_stack': 1.00},
-    'hunt_defensive':     {'material': 0.30, 'safety': 0.25, 'positioning': 0.20, 'alignment': 0.15, 'efficiency': 0.10, 'hunting': 0.00, 'control': 0.10, 'closeout': 0.35, 'max_height': 1.00, 'two_stack': 1.00},
+    'hunt_aggressive':    {'material': 0.25, 'safety': 0.15, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10},
+    'hunt_balanced':      {'material': 0.30, 'safety': 0.20, 'positioning': 0.10, 'alignment': 0.20, 'efficiency': 0.15, 'hunting': 0.15, 'control': 0.10},
+    'hunt_defensive':     {'material': 0.30, 'safety': 0.25, 'positioning': 0.20, 'alignment': 0.15, 'efficiency': 0.10, 'hunting': 0.00, 'control': 0.10},
 
 
     # The endgame profile, focused on eliminating enemy pieces and securing the win
-    'endgame':            {'material': 0.45, 'safety': 0.18, 'positioning': 0.03, 'alignment': 0.00, 'efficiency': 0.06, 'hunting': 0.25, 'control': 0.25, 'closeout': 1.20, 'max_height': 1.00, 'two_stack': 1.00},
+    'endgame':            {'material': 0.50, 'safety': 0.15, 'positioning': 0.05, 'alignment': 0.00, 'efficiency': 0.10, 'hunting': 0.20, 'control': 0.00},
 }
 
 
 def evaluate_board(board: BoardState, root_color: int, is_current_turn_red: bool, profile_name: str) -> float:
-    """The core evaluation runner that dynamically applies the requested profile."""
+    """The core evaluation runner that dynamically applies the requested profile"""
     weights = PROFILES.get(profile_name, PROFILES['phalanx_balanced'])
     is_my_turn = (root_color == 1 and is_current_turn_red) or (root_color == 0 and not is_current_turn_red)
     
     f_map, e_map = get_stack_maps(board, root_color)
-
-    # Terminal states must dominate everything else.
-    if not f_map:
-        return -999999.0
-    if not e_map:
-        return 999999.0
     
-    # Only calculate the feature if the weight is greater than 0, saving CPU time.
+    # Only calculate the feature if the weight is greater than 0, saving CPU time!
     total_score = 0.0
     if weights['material'] > 0:    total_score += calc_material(f_map, e_map) * weights['material']
     if weights['positioning'] > 0: total_score += calc_positioning(f_map, e_map) * weights['positioning']
@@ -533,13 +308,7 @@ def evaluate_board(board: BoardState, root_color: int, is_current_turn_red: bool
     if weights['alignment'] > 0:   total_score += calc_alignment(f_map) * weights['alignment']
     if weights['safety'] > 0:      total_score += calc_safety(f_map, e_map, is_my_turn) * weights['safety']
     if weights['hunting'] > 0:     total_score += calc_hunting(f_map, e_map) * weights['hunting']
-    if weights['control'] > 0:     total_score += calc_control(f_map, e_map) * weights['control']
-    if weights.get('closeout', 0) > 0:
-        total_score += calc_closeout(f_map, e_map) * weights['closeout']
-    if weights.get('max_height', 0) > 0:
-        total_score += calc_max_height_control(f_map, e_map) * weights['max_height']
-    if weights.get('two_stack', 0) > 0:
-        total_score += calc_two_stack_closeout(f_map, e_map) * weights['two_stack']
+    if weights['control'] > 0:   total_score += calc_control(f_map, e_map) * weights['control']
 
     return total_score
 # ==============================================================================
@@ -655,10 +424,19 @@ def get_place_maps(board: BoardState, root_color: int) -> tuple[list, list]:
 
 
 def calc_place_centrality(friendly: list) -> float:
-    """Rewards placing tokens toward the absolute center-4 squares."""
+    """
+    Rewards placing tokens toward the absolute center-4 squares.
+
+    Hard penalty if any token is outside the user-required 4x4 inner box
+    (rows 2-5, cols 2-5). The penalty is large enough to overwhelm any
+    denial dot-product reward, so corners and edges are effectively
+    forbidden unless no inner-square placement is legal.
+    """
     score = 0.0
     for idx in friendly:
         score += CENTER_WEIGHTS[idx] * 6.0
+        if idx not in INNER_SQUARE:
+            score -= 80.0  # stay-in-the-box penalty
     return score
 
 
@@ -700,19 +478,36 @@ def get_compact_l_score(stacks: list) -> float:
 
 
 def calc_place_synergy(friendly: list) -> float:
-    """Phase-aware synergy. Dictates the structure based on current turn count."""
+    """
+    Phase-aware synergy. Dictates the structure based on current turn count.
+
+    Key fix vs. the previous version:
+      * f_count == 4 used to return get_compact_l_score(friendly), which
+        only scores the best L among 3 of the 4 pieces. The 4th piece
+        contributed 0, so an isolated corner placement wasn't penalized
+        and the denial dot-product reward could push it into a corner.
+        Now the 4th piece is explicitly scored on how close it sits to
+        the L formation. Adjacent (forms a 2x2 / extended L) is best,
+        isolated is heavily penalized.
+      * f_count == 2 and 3 also reject pieces that are too far from
+        the existing tokens, so the whole formation stays compact.
+    """
     f_count = len(friendly)
-    if f_count < 2: 
+    if f_count < 2:
         return 0.0
 
-    # Phase 2: Force the second piece to be a separated blocker
+    # Phase 2: Force the second piece to be a separated blocker — but
+    # not too far away. The pair must stay within working range so the
+    # eventual L can form.
     if f_count == 2:
         dist = MANHATTAN[friendly[0]][friendly[1]]
-        if dist == 1: return -20.0  # Heavily penalize early adjacency
-        if dist == 2: return 8.0    # Perfect spacing
-        return 4.0
+        if dist == 1: return -20.0  # too close, would adjacency-merge prematurely
+        if dist == 2: return 8.0    # ideal spacing
+        if dist == 3: return 4.0
+        if dist == 4: return -2.0   # getting too far
+        return -15.0                 # >=5: pieces drifting apart
 
-    # Phase 3: Build the L-start (one pair adjacent, one piece separated)
+    # Phase 3: Build the L-start (one pair adjacent, one piece nearby).
     if f_count == 3:
         best = -999.0
         for i in range(3):
@@ -725,16 +520,48 @@ def calc_place_synergy(friendly: list) -> float:
                 if a in CENTER_4 or b in CENTER_4: score += CENTER_WEIGHTS[27] * 6.0
                 score += sum(CENTER_WEIGHTS[x] for x in (a, b))
 
-                # Ensure blocker is separated from the pair
+                # Blocker must be within reach of the pair (for L formation).
                 min_d = min(MANHATTAN[blocker][a], MANHATTAN[blocker][b])
-                if min_d >= 2: score += 12.0
-                elif min_d == 1: score -= 5.0
+                if   min_d == 1: score -= 5.0   # would prematurely merge
+                elif min_d == 2: score += 12.0  # perfect blocker spacing
+                elif min_d == 3: score += 6.0
+                elif min_d == 4: score -= 5.0
+                else:            score -= 20.0  # blocker drifted too far
 
                 if score > best: best = score
         return best if best > -999.0 else -20.0
 
-    # Phase 4: Full Compact L established
-    return get_compact_l_score(friendly)
+    # Phase 4: Full Compact L + 4th piece must integrate.
+    # Score = best 3-piece L score + integration bonus for the 4th piece.
+    # Adjacent to the L (forms a 2x2 block or extends the L) is ideal;
+    # isolated 4th piece is heavily penalized so it can't drift to a
+    # corner just because the denial dot-product points there.
+    if f_count == 4:
+        best_total = -999.0
+        for skip in range(4):
+            sub = [friendly[i] for i in range(4) if i != skip]
+            l_score = get_compact_l_score(sub)
+            if l_score <= 0:
+                continue
+
+            fourth = friendly[skip]
+            min_d = min(MANHATTAN[fourth][s] for s in sub)
+
+            if   min_d == 1: integration = 18.0  # 2x2 block / extended L — ideal
+            elif min_d == 2: integration = 10.0
+            elif min_d == 3: integration = 0.0
+            elif min_d == 4: integration = -15.0
+            else:            integration = -30.0  # isolated 4th piece — reject
+
+            total = l_score + integration
+            if total > best_total:
+                best_total = total
+
+        if best_total <= -999.0:
+            return -30.0  # no L formed at all
+        return best_total
+
+    return 0.0
 
 
 def calc_place_denial(board: BoardState, friendly: list, enemies: list) -> float:
@@ -757,13 +584,19 @@ def calc_place_denial(board: BoardState, friendly: list, enemies: list) -> float
     blocked = len(e_adjacent & f_adj)
     score += blocked * 6.0
 
-    # Pushing the Blocker Toward Enemy Centroid
+    # Pushing the Blocker Toward Enemy Centroid.
+    # Only reward this for tokens inside the inner square. Without this
+    # restriction, a corner placement would get a huge dot-product reward
+    # (cells far from board centre have large vector magnitudes), which
+    # is exactly what was pulling the 4th token out of the box.
     cr, cc = 3.5, 3.5
     e_r = sum(e >> 3 for e in enemies) / len(enemies)
     e_c = sum(e & 7 for e in enemies) / len(enemies)
     toward_r, toward_c = e_r - cr, e_c - cc
 
     for f in friendly:
+        if f not in INNER_SQUARE:
+            continue  # outside-box pieces don't earn denial reward
         fr, fc = f >> 3, f & 7
         dot = (fr - cr) * toward_r + (fc - cc) * toward_c
         score += dot * 4.0
@@ -799,4 +632,3 @@ def evaluate_place_board(board: BoardState, root_color: int, is_current_turn_red
 
 def eval_L_place(board: BoardState, root_color: int, is_red: bool) -> float:
     return evaluate_place_board(board, root_color, is_red, 'place_L')
-    
