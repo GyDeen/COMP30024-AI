@@ -96,7 +96,7 @@ def calc_efficiency(friendly_map: dict, enemy_map: dict) -> float:
         elif h == 6: f_score -= 10.0
         elif h > 6: f_score -= (30.0 + ((h - 6) * 10.0))
         
-        # If the stack is taller than its furthest reach, penalize the wasted tokens!
+        # If the stack is taller than its furthest reach, penalize the wasted tokens
         if h > max_useful_height:
             redundant_tokens = h - max_useful_height
             f_score -= (redundant_tokens * 10.0) 
