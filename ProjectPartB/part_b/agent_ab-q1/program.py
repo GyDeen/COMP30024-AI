@@ -1,13 +1,20 @@
 # COMP30024 Artificial Intelligence, Semester 1 2026
 # Project Part B: Game Playing Agent
 
-from referee.game import PlayerColor, Direction, \
-    Action, PlaceAction, MoveAction, EatAction, CascadeAction
+from referee.game import (
+    Action,
+    CascadeAction,
+    Direction,
+    EatAction,
+    MoveAction,
+    PlaceAction,
+    PlayerColor,
+)
 
+from .action import execute_move, pack_move
 from .board import BoardState
-from .action import pack_move, execute_move
+from .heuristic import end_phase_eval, eval0, eval_L_place
 from .search import get_best_move
-from .heuristic import eval0, eval_L_place, end_phase_eval
 
 DIR_TO_OFFSET = {
     Direction.Up: -8,
@@ -50,11 +57,12 @@ class Agent:
         self._turn_count = 0
         self.board = BoardState()
         self.tt = {} # values are (score, depth, flag, best_move)
-        match color:
-            case PlayerColor.RED:
-                print("Testing: I am playing as RED (first player)")
-            case PlayerColor.BLUE:
-                print("Testing: I am playing as BLUE")
+        if color == PlayerColor.RED:
+            print("Testing: I am playing as RED (first player)")
+        elif color == PlayerColor.BLUE:
+            print("Testing: I am playing as BLUE")
+        else:
+            raise ValueError(f"unexpected color: {color}")
 
     def action(self, **referee: dict) -> Action:
         """

@@ -1,0 +1,88 @@
+T0000.000	referee	game_begin
+T0000.000	RED	initialising
+T0000.093	BLUE	initialising
+T0000.161	RED	turn_begin	1
+T0000.163	RED	turn_end	1	PLACE(3-3)
+T0000.164	referee	board_update
+T0000.168	BLUE	turn_begin	2
+T0000.170	BLUE	turn_end	2	PLACE(4-4)
+T0000.170	referee	board_update
+T0000.174	RED	turn_begin	3
+T0000.176	RED	turn_end	3	PLACE(2-3)
+T0000.176	referee	board_update
+T0000.180	BLUE	turn_begin	4
+T0000.182	BLUE	turn_end	4	PLACE(5-4)
+T0000.182	referee	board_update
+T0000.186	RED	turn_begin	5
+T0000.188	RED	turn_end	5	PLACE(5-2)
+T0000.188	referee	board_update
+T0000.192	BLUE	turn_begin	6
+T0000.193	BLUE	turn_end	6	PLACE(2-5)
+T0000.193	referee	board_update
+T0000.198	RED	turn_begin	7
+T0000.200	RED	turn_end	7	PLACE(2-2)
+T0000.201	referee	board_update
+T0000.204	BLUE	turn_begin	8
+T0000.206	BLUE	turn_end	8	PLACE(5-5)
+T0000.206	referee	board_update
+T0000.209	RED	turn_begin	9
+T0003.212	RED	turn_end	9	CASCADE(5-2, [↑])
+T0003.212	referee	board_update
+T0003.218	BLUE	turn_begin	10
+T0006.220	BLUE	turn_end	10	CASCADE(2-5, [↓])
+T0006.220	referee	board_update
+T0006.225	RED	turn_begin	11
+T0009.229	RED	turn_end	11	MOVE(3-2, [→])
+T0009.229	referee	board_update
+T0009.234	BLUE	turn_begin	12
+T0012.237	BLUE	turn_end	12	MOVE(4-5, [←])
+T0012.237	referee	board_update
+T0012.243	RED	turn_begin	13
+T0015.246	RED	turn_end	13	MOVE(2-2, [→])
+T0015.247	referee	board_update
+T0015.252	BLUE	turn_begin	14
+T0018.256	BLUE	turn_end	14	MOVE(6-5, [↑])
+T0018.256	referee	board_update
+T0018.263	RED	turn_begin	15
+T0021.267	RED	turn_end	15	MOVE(4-2, [↑])
+T0021.267	referee	board_update
+T0021.272	BLUE	turn_begin	16
+T0024.275	BLUE	turn_end	16	MOVE(5-4, [←])
+T0024.275	referee	board_update
+T0024.281	RED	turn_begin	17
+T0027.285	RED	turn_end	17	MOVE(1-2, [↓])
+T0027.285	referee	board_update
+T0027.292	BLUE	turn_begin	18
+T0030.295	BLUE	turn_end	18	MOVE(5-3, [↑])
+T0030.295	referee	board_update
+T0030.300	RED	turn_begin	19
+T0033.304	RED	turn_end	19	CASCADE(3-3, [↓])
+T0033.305	referee	board_update
+T0033.310	BLUE	turn_begin	20
+T0036.314	BLUE	turn_end	20	EAT(4-4, [←])
+T0036.314	referee	board_update
+T0036.319	RED	turn_begin	21
+T0039.324	RED	turn_end	21	MOVE(2-3, [→])
+T0039.325	referee	board_update
+T0039.331	BLUE	turn_begin	22
+T0042.336	BLUE	turn_end	22	MOVE(4-3, [→])
+T0042.336	referee	board_update
+T0042.342	RED	turn_begin	23
+T0045.347	RED	turn_end	23	MOVE(2-4, [←])
+T0045.347	referee	board_update
+T0045.353	BLUE	turn_begin	24
+T0048.357	BLUE	turn_end	24	MOVE(4-4, [←])
+T0048.357	referee	board_update
+T0048.363	RED	turn_begin	25
+T0051.368	RED	turn_end	25	MOVE(2-3, [→])
+T0051.368	referee	board_update
+T0051.373	BLUE	turn_begin	26
+T0054.377	BLUE	turn_end	26	MOVE(4-3, [→])
+T0054.378	referee	board_update
+T0054.384	RED	turn_begin	27
+T0057.389	RED	turn_end	27	MOVE(2-4, [←])
+T0057.389	referee	board_update
+T0057.395	BLUE	turn_begin	28
+T0060.399	BLUE	turn_end	28	MOVE(4-4, [←])
+T0060.400	referee	board_update
+T0060.421	referee	game_end	winner:None

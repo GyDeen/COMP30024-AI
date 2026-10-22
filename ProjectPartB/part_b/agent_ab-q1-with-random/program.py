@@ -74,8 +74,8 @@ class Agent:
         else:
             remaining = 180.0
         if self.board.turn_count < 8:
-            return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.evaluate, self.tt)
-        return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.evaluate, self.tt)
+            return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.evaluate, self.tt, 3.0)
+        return get_best_move(self.board, root_color, self._color == PlayerColor.RED, remaining, self.place_eval, self.evaluate, self.tt, 3.0)
 
     def update(self, color: PlayerColor, action: Action, **referee: dict):
         """

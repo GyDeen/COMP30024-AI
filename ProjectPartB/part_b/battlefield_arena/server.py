@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 import importlib
+import json
 import mimetypes
 import sys
-from threading import Lock
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,7 +22,6 @@ from referee.game import (
     PlaceAction,
     PlayerColor,
 )
-
 
 ARENA_DIR = ROOT / "battlefield_arena"
 BATTLEFIELD_DIR = ROOT / "battlefield_page"
@@ -206,6 +205,16 @@ class ArenaHandler(BaseHTTPRequestHandler):
                     current_agent = next(iter(python_agents.values()), None)
                     if current_agent is None:
                         raise RuntimeError("no Python agent is initialised")
+                    if not hasattr(current_agent, "model") or current_agent.model is None:
+                        self.send_json({
+                            "ok": True,
+                            "red": 0,
+                            "draw": 0,
+                            "blue": 0,
+                            "turnColor": "red",
+                            "policyMax": 0,
+                        })
+                        return
                     policy_probs, value_probs = current_agent.model.predict(current_agent.encode_board())
                     red = float(value_probs[0])
                     blue = float(value_probs[1])
@@ -221,7 +230,7 @@ class ArenaHandler(BaseHTTPRequestHandler):
                     "policyMax": policy_max,
                 })
                 return
-
+        
             self.send_error(404)
 
         except Exception as exc:
