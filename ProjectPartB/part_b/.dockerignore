@@ -1,0 +1,5 @@
+# The image needs only the requirements. VS Code mounts source at runtime.
+**
+!requirements.txt
+!.devcontainer/
+!.devcontainer/Dockerfile

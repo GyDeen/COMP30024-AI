@@ -83,77 +83,83 @@ The original log retains the actions and event timestamps. They are not copied
 into this dataset. When shuffling positions for learning, keep each selected
 position's game ID and index so its context and split membership remain known.
 
-## 4. What each function does and why
+## 4. Function purposes and data contracts
 
 ### `read_log(path)`
 
-Reads the referee's tab-separated events into small `LogEvent` objects. It
-checks event names, actor names, argument counts and timestamps. The original
-line number is kept for error messages. This is temporary parsing information;
-it is not written into every saved position.
+Provides the recorded events needed to reconstruct a game. Accepts a referee
+log path and returns events in file order, with their timestamps, players,
+event names, arguments and source line numbers. Empty or malformed logs are
+rejected. These events are temporary replay input, not the extracted dataset.
 
 ### `parse_action(text)`
 
-Converts a display string such as `MOVE(2-3, [→])` into a referee `MoveAction`
-with coordinate `(2, 3)` and direction `Right`. It recognises PLACE, MOVE, EAT
-and CASCADE without executing log text. Parsing checks syntax; the referee
-checks whether the move is legal on the current board.
+Identifies the action described by a log string. For example,
+`MOVE(2-3, [→])` represents moving the stack at `(2, 3)` to the right. Returns
+the corresponding referee action object. A valid action description does not
+by itself establish that the action is legal in a particular position.
 
 ### `snapshot_board(board)`
 
-Creates a fresh `np.uint8` array of length 64. It reads cells through the
-referee's board interface and encodes each occupied cell with its colour flag
-and height. Empty cells remain zero. Copying each snapshot prevents later
-board mutations from changing historical positions. This function returns
-only the array, with no position dictionary or cached counters.
+Represents one position in the dataset's compact format. Accepts a referee
+board and returns an independent `uint8` array of 64 cells, in row-major order.
+Each cell contains the stack's colour and height in the agent encoding from
+section 2. The result describes that position even after the game continues.
 
 ### `ending_reason(board)`
 
-Derives elimination, repetition, stalemate or turn-limit endings in the
-referee's precedence order. It reuses the referee's private
-`_is_threefold_repetition()` and `_has_legal_actions()` helpers, because no public
-ending-reason property exists. These two calls are the dependencies to review
-if the referee is replaced. The extractor does not keep another repetition
-history or implement another move generator.
+Explains why a completed game ended. Accepts the final referee board with its
+history and returns `elimination`, `threefold_repetition`, `stalemate` or
+`turn_limit`. The referee's precedence determines the reason if conditions
+overlap. This is separate from the winner: a repetition draw can occur even
+when one player has more tokens.
 
 ### `extract_game(log_path, game_id)`
 
-Starts with an empty referee `Board`, then replays the log in order:
+Produces the dataset for one completed game. Accepts a referee log path and
+optional game ID, then returns the four-field dictionary shown in section 1.
+Without an explicit ID, the log filename stem identifies the game.
 
-1. Check the start and player initialisation events.
-2. Check that each turn number and player colour match the reconstructed board.
-3. Parse each action and apply it with `board.apply_action(action)`.
-4. Require the following `board_update`, then save a snapshot.
-5. Verify that the final board's winner agrees with the logged winner.
-6. Join the snapshots into one array with `np.stack(states)` and return the
-   four-field game dictionary.
-
-The `board_update` confirmation matters: the referee logs a requested action
-BEFORE checking and applying it. An action request alone is not evidence of an
-accepted transition. The replay also checks legality through the actual rules.
-
-Incomplete games, forfeits, illegal actions, missing turns and inconsistent
-results raise errors. Extraction completes before an output file is opened.
+The position sequence includes the empty board, the board after every accepted
+action, and the final board. A game with 28 actions therefore has 29 positions.
+Only complete, naturally finished games with a consistent result are accepted.
+The returned dictionary is in memory; this function does not save a file.
 
 ### `write_game(game, output_path)`
 
-Uses `np.savez_compressed()` to save the array and metadata together. The output
-must have a `.npz` extension. Opening with `"xb"` refuses to overwrite an existing
-file. The dictionary is unpacked into named arrays; it is not pickled as an
-opaque Python object.
+Persists one extracted game so its positions and result can be used later.
+Accepts the dictionary returned by `extract_game()` and a new `.npz` file path.
+The archive contains these four named entries:
+
+| Saved entry | What it records |
+|---|---|
+| `game_id` | Identifier linking all positions to this game |
+| `winner` | Final result: `RED`, `BLUE` or `DRAW` |
+| `ending_reason` | Elimination, threefold repetition, stalemate or turn limit |
+| `states` | A `uint8` array of shape `(N, 64)` containing the entire ordered board history |
+
+Each row of `states` uses the agent's cell encoding: `0` for empty,
+`16 | height` for Red, and `32 | height` for Blue. Row zero is the initial
+empty board; the last row is terminal. Metadata is stored once per game.
+
+The extracted data does not include actions, timestamps, token totals or
+search-evaluation labels. Actions and timestamps remain in the original log;
+token totals can be derived from the boards. Evaluation labels are a later
+step. This function returns nothing and refuses to replace an existing file.
 
 ### `load_game(path)`
 
-Reads the archive with `np.load(..., allow_pickle=False)`. It returns `states`
-as a NumPy array and converts the three scalar string arrays back into normal
-Python strings. A `with` block closes the archive after reading its contents.
+Retrieves a saved game for analysis or feature extraction. Accepts the archive
+path and returns the same four-field structure as `extract_game()`: three
+Python strings and the board-history array. Cell encoding and chronological
+position order are preserved.
 
 ### `main()`
 
-Reads the command-line arguments, calls extraction and saving, then prints the
-number of positions and the result. Importing the module does not launch this
-command. An input/output error produces a nonzero exit status and a short
-message.
+Makes extraction available from Terminal. Accepts the log path, required
+`--output` archive path and optional `--game-id`. Produces the game archive and
+reports its number of positions, winner and ending reason. Invalid input or
+an output failure is reported with exit status 2.
 
 ## 5. Extract and load a game
 
