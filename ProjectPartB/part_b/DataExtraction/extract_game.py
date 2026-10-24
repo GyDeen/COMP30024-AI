@@ -1,4 +1,4 @@
-"""Replay one referee log into a compact NumPy archive for the whole game.
+"""Create a dataset of one Cascade game's board history and final result.
 
     python -m DataExtraction.extract_game logs/baseline-selfplay.log \
         --output DataExtraction/output/baseline-selfplay.npz
@@ -24,7 +24,7 @@ from Agents.common.board import BOARD_N, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
 
 @dataclass(frozen=True)
 class LogEvent:
-    """One parsed TSV line, retaining its line number for useful errors."""
+    """A recorded game event with its time, actor, payload and source line."""
 
     seconds: float
     actor: str
@@ -34,7 +34,18 @@ class LogEvent:
 
 
 def read_log(path: Path) -> list[LogEvent]:
-    """Read the referee's --logfile output, rejecting malformed event lines."""
+    """Provide the recorded events needed to reconstruct a Cascade game.
+
+    Args:
+        path: Referee log file produced with the --logfile option.
+
+    Returns:
+        Events in file order, including their timestamps, actors, event names,
+        arguments and original line numbers.
+
+    Raises:
+        ValueError: The log is empty or contains malformed event records.
+    """
     argument_counts = {
         "game_begin": 0, "initialising": 0, "turn_begin": 1,
         "turn_end": 2, "board_update": 0, "game_end": 1,
@@ -70,7 +81,18 @@ def read_log(path: Path) -> list[LogEvent]:
 
 
 def parse_action(text: str) -> Action:
-    """Convert logged action text into a referee action without using eval()."""
+    """Identify the game action described by a logged action string.
+
+    Args:
+        text: A PLACE, MOVE, EAT or CASCADE string, such as 'MOVE(2-3, [→])'.
+
+    Returns:
+        The corresponding referee action, including its coordinate and any
+        direction. Whether it is legal depends on the current board.
+
+    Raises:
+        ValueError: The action format, coordinate or direction is unsupported.
+    """
     match = re.fullmatch(
         r"(PLACE|MOVE|EAT|CASCADE)\(([0-7])-([0-7])(?:, \[([↑↓←→])\])?\)",
         text,
@@ -92,7 +114,18 @@ def parse_action(text: str) -> Action:
 
 
 def snapshot_board(board: Board) -> np.ndarray:
-    """Copy the board to 64 bytes in the baseline agent's cell encoding."""
+    """Represent one board position in the dataset's agent-compatible format.
+
+    Args:
+        board: Referee board whose current position should be recorded.
+
+    Returns:
+        An independent uint8 array of 64 cells in row-major order. Empty cells
+        are 0; Red stacks are 16 | height; Blue stacks are 32 | height.
+
+    Raises:
+        ValueError: A stack height cannot be represented by the cell encoding.
+    """
     state = np.zeros(BOARD_N * BOARD_N, dtype=np.uint8)
     for row in range(BOARD_N):
         for column in range(BOARD_N):
@@ -106,7 +139,18 @@ def snapshot_board(board: Board) -> np.ndarray:
 
 
 def ending_reason(board: Board) -> str:
-    """Explain a natural ending using the referee's outcome precedence."""
+    """Identify the game-ending condition responsible for the final result.
+
+    Args:
+        board: A terminal referee board, including its game history.
+
+    Returns:
+        'elimination', 'threefold_repetition', 'stalemate' or 'turn_limit'.
+        If conditions overlap, the referee's outcome precedence applies.
+
+    Raises:
+        ValueError: No game-ending condition is present.
+    """
     if board.red_tokens == 0 or board.blue_tokens == 0:
         return "elimination"
     if board._is_threefold_repetition():
@@ -121,10 +165,25 @@ def ending_reason(board: Board) -> str:
 
 
 def extract_game(log_path: Path, game_id: str | None = None) -> dict:
-    """Validate and replay a complete, naturally finished game.
+    """Produce the board-history dataset and outcome for one completed game.
 
-    states[0] is the empty board; states[t] follows t accepted actions.
-    The last state is terminal. Aborted games and forfeits are rejected.
+    Args:
+        log_path: Complete referee log for a naturally finished game starting
+            from the empty board. Games ending through agent errors are excluded.
+        game_id: Identifier for this game; defaults to the log filename stem.
+
+    Returns:
+        A dictionary containing:
+            game_id: Game identifier, as a string.
+            winner: 'RED', 'BLUE' or 'DRAW'.
+            ending_reason: The game-ending condition; see ending_reason().
+            states: uint8 array of shape (N, 64), using snapshot_board()'s
+                encoding. Row t is the board after t accepted actions. Row 0
+                is empty and row N - 1 is terminal.
+
+    Raises:
+        ValueError: The identifier is empty, the log is incomplete or invalid,
+            or the recorded result disagrees with the reconstructed game.
     """
     log_path = Path(log_path)
     game_id = log_path.stem if game_id is None else game_id
@@ -200,7 +259,31 @@ def extract_game(log_path: Path, game_id: str | None = None) -> dict:
 
 
 def write_game(game: dict, output_path: Path) -> None:
-    """Save arrays and three scalar strings once, without pickled objects."""
+    """Save one extracted game's board history and outcome for later analysis.
+
+    Args:
+        game: Dictionary returned by extract_game(). Its entries are saved
+            under the same names in the archive:
+                game_id: Identifier linking these positions to their game.
+                winner: Final outcome: 'RED', 'BLUE' or 'DRAW'.
+                ending_reason: 'elimination', 'threefold_repetition',
+                    'stalemate' or 'turn_limit'.
+                states: uint8 array of shape (N, 64). Each row is a board in
+                    agent encoding: 0 for empty, 16 | height for Red, and
+                    32 | height for Blue. Rows run from the initial empty
+                    board through every accepted action to the final board.
+        output_path: Destination for a new .npz game archive. Game metadata is
+            saved once for the whole sequence. Actions, timestamps, token
+            totals and search-evaluation labels are not part of this dataset.
+
+    Returns:
+        None. The saved game is available through load_game(output_path).
+
+    Raises:
+        ValueError: The destination does not have a .npz extension.
+        FileExistsError: The destination file already exists.
+        OSError: The archive cannot be written.
+    """
     output_path = Path(output_path)
     if output_path.suffix != ".npz":
         raise ValueError("Output must use the .npz extension")
@@ -210,7 +293,16 @@ def write_game(game: dict, output_path: Path) -> None:
 
 
 def load_game(path: Path) -> dict:
-    """Load the compact game; return metadata as ordinary Python strings."""
+    """Retrieve a saved game's positions and outcome for feature extraction.
+
+    Args:
+        path: Game archive previously saved by write_game().
+
+    Returns:
+        The same four-field structure as extract_game(): game_id, winner and
+        ending_reason as Python strings, and states as a uint8 array of shape
+        (N, 64). Position order and cell encoding are preserved.
+    """
     with np.load(path, allow_pickle=False) as saved:
         return {
             "game_id": saved["game_id"].item(),
@@ -221,7 +313,12 @@ def load_game(path: Path) -> dict:
 
 
 def main() -> None:
-    """Provide a small command-line entry point for one game at a time."""
+    """Create one game archive from command-line input and report its outcome.
+
+    Accepts a referee log path, a required --output .npz path and an optional
+    --game-id. Reports the saved position count, winner and ending reason.
+    Invalid input or an output failure produces exit status 2.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path, help="Complete referee --logfile output")
     parser.add_argument("--output", type=Path, required=True, help="New .npz file")
