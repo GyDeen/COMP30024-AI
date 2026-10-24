@@ -1,3 +1,6 @@
+"""Byte board shared by all agents; the baseline turn counter is retained."""
+
+BOARD_N = 8
 RED_FLAG = 16
 BLUE_FLAG = 32
 HEIGHT_MASK = 15
@@ -5,7 +8,7 @@ HEIGHT_MASK = 15
 
 
 class BoardState:
-    __slots__ = ['state', 'red_tokens', 'blue_tokens']
+    __slots__ = ['state', 'red_tokens', 'blue_tokens', 'turn_count']
 
     def __init__(self, initial_bytes=None):
         if initial_bytes is not None:
@@ -13,11 +16,13 @@ class BoardState:
             self.state = bytearray(initial_bytes.state)
             self.red_tokens = initial_bytes.red_tokens
             self.blue_tokens = initial_bytes.blue_tokens
+            self.turn_count = initial_bytes.turn_count
         else:
             # Create an empty 64-cell byte board
             self.state = bytearray(64)
             self.red_tokens = 0
             self.blue_tokens = 0
+            self.turn_count = 0
 
     def get_height(self, idx: int) -> int:
         """Returns the height of the stack at the given 1D index (0-63)."""
@@ -85,3 +90,8 @@ class BoardState:
                     output += f"{color_char}{height} "
             output += "\n"
         print(output)
+        
+    
+    def increment_round(self):
+        """Increments the turn count by 1."""
+        self.turn_count += 1

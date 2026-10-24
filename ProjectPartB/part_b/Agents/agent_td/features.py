@@ -32,8 +32,8 @@ Feature list (17 features):
 """
 
 import numpy as np
-from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
-from .action import is_valid_coord, UP, DOWN, LEFT, RIGHT
+from Agents.common.board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+from Agents.common.action import is_valid_coord, UP, DOWN, LEFT, RIGHT
 
 OFFSETS = (UP, DOWN, LEFT, RIGHT)
 NUM_FEATURES = 17

@@ -16,9 +16,9 @@ CHANGES OVER v11:
     from wanting to drag the anchor across the board.
   * Quiescence (eat/cascade lookahead) and all v11 terms preserved.
 """
-from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
-from .action import is_valid_coord, UP, DOWN, LEFT, RIGHT, MOVE, EAT, CASCADE
-from .action import move, eat, cascade
+from Agents.common.board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+from Agents.common.action import is_valid_coord, UP, DOWN, LEFT, RIGHT, MOVE, EAT, CASCADE
+from Agents.common.action import move, eat, cascade
 
 INF = 999999
 OFFSETS = (UP, DOWN, LEFT, RIGHT)

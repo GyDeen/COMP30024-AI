@@ -1,7 +1,7 @@
 import unittest
 
-from agent_alphabeta.board import BoardState
-from agent_alphabeta.action import place, move, eat, cascade, UP, DOWN, LEFT, RIGHT
+from Agents.common.board import BoardState
+from Agents.common.action import place, move, eat, cascade, UP, DOWN, LEFT, RIGHT
 
 # To run all the test use command python -m unittest tests/test_actions.py
 # To run specific test use command python -m unittest tests.test_actions.TestCascadeActions.test_name

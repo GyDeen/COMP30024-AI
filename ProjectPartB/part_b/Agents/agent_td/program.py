@@ -5,8 +5,8 @@ import os, time, random, math
 import numpy as np
 from referee.game import PlayerColor, Coord, Direction, \
     Action, PlaceAction, MoveAction, EatAction, CascadeAction
-from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
-from .action import place, move, eat, cascade, is_valid_coord, \
+from Agents.common.board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+from Agents.common.action import place, move, eat, cascade, is_valid_coord, \
     BOARD_N, UP, DOWN, LEFT, RIGHT, MOVE, EAT, CASCADE
 from .features import extract_features, evaluate_linear, NUM_FEATURES, DEFAULT_WEIGHTS
 

@@ -1,6 +1,6 @@
-from .board import BoardState
-from .action import pack_move, translate_to_Action, execute_move
-from .action import PLACE, MOVE, EAT, CASCADE
+from Agents.common.board import BoardState
+from Agents.common.action import pack_move, translate_to_Action, execute_move
+from Agents.common.action import PLACE, MOVE, EAT, CASCADE
 from referee.game.actions import Action
 import time
 

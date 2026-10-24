@@ -4,8 +4,8 @@
 from referee.game import PlayerColor, Direction, \
     Action, PlaceAction, MoveAction, EatAction, CascadeAction
 
-from .board import BoardState
-from .action import pack_move, execute_move
+from Agents.common.board import BoardState
+from Agents.common.action import pack_move, execute_move
 from .search import get_best_move
 from .heuristic import eval0, eval_place_co1
 

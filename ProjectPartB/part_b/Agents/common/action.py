@@ -1,8 +1,9 @@
-from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+"""Shared Cascade transitions and packed-move helpers."""
+
+from .board import BOARD_N, BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
 from referee.game import PlayerColor, Coord, Direction, \
     Action, PlaceAction, MoveAction, EatAction, CascadeAction
 
-BOARD_N = 8
 UP, DOWN, LEFT, RIGHT = -8, 8, -1, 1
 PLACE = 0
 MOVE = 1
@@ -180,11 +181,3 @@ def is_valid_coord(idx, offset):
     if offset == LEFT:  return c > 0
     if offset == RIGHT: return c < 7
     return False
-    
-    
-    
-    
-    
-    
-    
-    

@@ -11,8 +11,8 @@ from referee.game import (
     PlayerColor,
 )
 
-from .action import execute_move, pack_move
-from .board import BoardState
+from Agents.common.action import execute_move, pack_move
+from Agents.common.board import BoardState
 from .heuristic import end_phase_eval, eval0, eval_L_place
 from .search import get_best_move
 

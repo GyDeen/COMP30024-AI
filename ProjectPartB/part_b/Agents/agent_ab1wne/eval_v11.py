@@ -5,8 +5,8 @@ search.py calls eval_function(board, root_color, is_red_to_move).
 This wrapper scores every leaf from the root agent's colour, which is the
 correct perspective for alpha-beta minimax.
 """
-from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
-from .action import is_valid_coord, UP, DOWN, LEFT, RIGHT, eat, cascade
+from Agents.common.board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+from Agents.common.action import is_valid_coord, UP, DOWN, LEFT, RIGHT, eat, cascade
 
 INF = 999999
 RED = 1

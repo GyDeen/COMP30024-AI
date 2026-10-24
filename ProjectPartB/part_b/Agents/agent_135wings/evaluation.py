@@ -23,8 +23,8 @@ This version returns to basics:
 The MCTS tactical override handles: instant wins, safe captures.
 The eval handles: approach, positioning, material evaluation.
 """
-from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
-from .action import is_valid_coord, UP, DOWN, LEFT, RIGHT
+from Agents.common.board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+from Agents.common.action import is_valid_coord, UP, DOWN, LEFT, RIGHT
 
 
 INF = 999999

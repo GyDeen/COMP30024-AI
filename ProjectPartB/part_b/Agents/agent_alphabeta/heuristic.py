@@ -1,4 +1,4 @@
-from .board import BoardState
+from Agents.common.board import BoardState
 from .search import ADJACENT
 
 RED = 1

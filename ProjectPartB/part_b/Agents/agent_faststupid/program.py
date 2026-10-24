@@ -26,8 +26,8 @@ import time
 from referee.game import PlayerColor, Coord, Direction, \
     Action, PlaceAction, MoveAction, EatAction, CascadeAction
 
-from .board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
-from .action import (
+from Agents.common.board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
+from Agents.common.action import (
     place, move, eat, cascade,
     is_valid_coord,
     BOARD_N, UP, DOWN, LEFT, RIGHT, MOVE, EAT, CASCADE

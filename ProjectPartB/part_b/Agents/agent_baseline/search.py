@@ -2,7 +2,7 @@ import time
 
 from referee.game.actions import Action
 
-from .action import (
+from Agents.common.action import (
     CASCADE,
     EAT,
     MOVE,
@@ -12,7 +12,7 @@ from .action import (
     translate_to_Action,
     unpack_move,
 )
-from .board import BoardState
+from Agents.common.board import BoardState
 
 RED = 1
 BLUE = 0
