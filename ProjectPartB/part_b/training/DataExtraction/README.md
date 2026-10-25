@@ -9,6 +9,11 @@ its archive with the existing agent's unweighted feature vectors and position
 context. Training and notebooks consume these archives; they do not need to
 replay referee logs or duplicate the handcrafted feature calculations.
 
+`GameGeneration.generate` calls both stages automatically for completed games,
+including [local teaching-agent games](../../Agents/teacher/README.md).
+Its `features/` archives have the same format described below; no arena server
+or server-specific dataset loader is needed.
+
 ## 1. The complete representation
 
 Loading a game gives one dictionary with four fields:
@@ -264,7 +269,7 @@ Each archive contains:
 | `side_to_move` | `(N,)`: `RED` or `BLUE`; terminal rows retain the nominal next player |
 | `phase` | `(N,)`: `PLACEMENT` or `PLAY` |
 | `play_turns`, `remaining_play_turns` | `(N,)`: completed play turns and remaining referee allowance |
-| `repetition_count` | `(N,)`: occurrences of this board with this side to move, including the current occurrence; zero during placement |
+| `repetition_state_count` | `(N,)`: occurrences of this board with this side to move, including the current occurrence; zero during placement |
 | `is_terminal` | `(N,)`: true only for the final snapshot |
 | `baseline_profile_names` | Names of all six profiles from the source agent |
 | `baseline_weights` | `(6, 8)`: profile weights aligned with `feature_names` |
@@ -323,13 +328,12 @@ correct terminal result; it cannot reconstruct actions from snapshots alone.
 ## 8. Checks and training boundaries
 
 ```bash
-./.venv/bin/python -m unittest Agents.common.features.test_features -v
+./.venv/bin/python -m unittest GameGeneration.tests.test_generation GameGeneration.tests.test_teacher -b -v
 ```
 
-Checks reproduce all baseline profile evaluations for both perspectives,
-verify shared feature wiring and distinct scoring variants, confirm the
-extractor imports no playing agents or search modules, and check archive
-round-tripping without pickle or overwriting existing files.
+Checks run real referee games, verify saved boards against replayed logs,
+check the feature archive's alignment and shape, and exercise failure handling.
+Teacher checks also run the bundled worker locally and validate action encoding.
 
 For a play-phase evaluator, select positions starting at index eight and omit
 the final terminal position from ordinary nonterminal examples. Keep whole
