@@ -20,7 +20,7 @@ import sys
 import time
 import uuid
 
-from DataExtraction.extract_game import extract_game, write_game
+from training.DataExtraction.extract_game import extract_game, write_game
 from .config import GameSpec, GenerationConfig, load_config, plan_games
 
 

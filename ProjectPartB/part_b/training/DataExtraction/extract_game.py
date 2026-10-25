@@ -1,7 +1,7 @@
 """Create a dataset of one Cascade game's board history and final result.
 
-    python -m DataExtraction.extract_game logs/baseline-selfplay.log \
-        --output DataExtraction/output/baseline-selfplay.npz
+    python -m training.DataExtraction.extract_game logs/baseline-selfplay.log \
+        --output training/DataExtraction/output/baseline-selfplay.npz
 
 """
 
