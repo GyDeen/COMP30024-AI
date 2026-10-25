@@ -1,8 +1,13 @@
-# Compact Cascade game extraction
+# Cascade game and feature extraction
 
 The extractor validates a saved referee log and stores one compact game in a
 NumPy `.npz` archive. It uses the baseline agent's board encoding, with constants
 from `Agents.common.board`. Extraction does not instantiate a playing agent.
+
+`extract_game.py` is the first preparation stage. `extract_features.py` enriches
+its archive with the existing agent's unweighted feature vectors and position
+context. Training and notebooks consume these archives; they do not need to
+replay referee logs or duplicate the handcrafted feature calculations.
 
 ## 1. The complete representation
 
@@ -167,9 +172,9 @@ Run from the project's `part_b` folder:
 
 ```bash
 cd "/Users/deenzhou/Documents/Unimelb/COMP30024 AI/ProjectPartB/part_b"
-./.venv/bin/python -m DataExtraction.extract_game \
+./.venv/bin/python -m training.DataExtraction.extract_game \
   logs/baseline-selfplay.log \
-  --output DataExtraction/output/baseline-selfplay.npz \
+  --output training/DataExtraction/output/baseline-selfplay.npz \
   --game-id baseline-selfplay-001
 ```
 
@@ -183,9 +188,9 @@ To inspect the existing example:
 ```bash
 ./.venv/bin/python - <<'PY'
 from pathlib import Path
-from DataExtraction.extract_game import load_game
+from training.DataExtraction.extract_game import load_game
 
-game = load_game(Path("DataExtraction/output/baseline-selfplay.npz"))
+game = load_game(Path("training/DataExtraction/output/baseline-selfplay.npz"))
 states = game["states"]
 print(game["game_id"], game["winner"], game["ending_reason"])
 print(states.shape, states.dtype, states.nbytes)
@@ -217,21 +222,121 @@ Assigning the bytearray restores the cells. Recomputing the two cached token
 totals makes the object consistent with the baseline's methods and evaluator.
 The side to move is separate because `BoardState` does not store it.
 
-## 7. Checks and next steps
+## 7. Extract the handcrafted feature dataset
+
+From `part_b`, run:
 
 ```bash
-./.venv/bin/python -m unittest DataExtraction.tests.test_extract_game -v
+./.venv/bin/python -m training.DataExtraction.extract_features \
+  training/DataExtraction/output/baseline-selfplay.npz \
+  --output training/DataExtraction/output/baseline-selfplay-features.npz
 ```
 
-Checks cover all four action types, captures, cascade pushing, repetition,
-compatibility with the actual baseline board, compact array size, archive
-round-tripping without object arrays, and rejection of malformed logs.
+The destination must be new. NumPy is the only data-processing dependency;
+PyTorch and Jupyter are not needed to extract features. Process each complete
+game into its own archive so its game ID and chronological history stay intact.
+
+The extractor imports `Agents.agent_ab-q1.heuristic` and calls its existing
+`get_stack_maps` and `calc_*` functions. Agent code is unchanged and no playing
+agent is constructed. The eight movement features have this fixed order:
+
+```python
+("material", "positioning", "efficiency", "alignment",
+ "threaten_enemy", "safety", "hunting", "control")
+```
+
+These values are saved before applying profile weights. All eight are computed,
+including features with zero weight in the baseline. Both player perspectives
+are evaluated independently: some features are asymmetric and turn-dependent,
+so Blue's vector cannot generally be obtained by negating Red's.
+
+Each archive contains:
+
+| Entry | Shape / meaning |
+|---|---|
+| `game_id`, `winner`, `ending_reason` | Original game metadata, stored once |
+| `states` | Original `uint8` board history, shape `(N, 64)` |
+| `features` | `float32` vectors, shape `(N, 2, 8)` |
+| `feature_names` | The eight feature column names, in order |
+| `perspectives` | `RED`, `BLUE`: the order of the second feature axis |
+| `position_index` | `(N,)`: number of actions completed at each board |
+| `side_to_move` | `(N,)`: `RED` or `BLUE`; terminal rows retain the nominal next player |
+| `phase` | `(N,)`: `PLACEMENT` or `PLAY` |
+| `play_turns`, `remaining_play_turns` | `(N,)`: completed play turns and remaining referee allowance |
+| `repetition_count` | `(N,)`: occurrences of this board with this side to move, including the current occurrence; zero during placement |
+| `is_terminal` | `(N,)`: true only for the final snapshot |
+| `baseline_profile_names` | Names of all six profiles from the source agent |
+| `baseline_weights` | `(6, 8)`: profile weights aligned with `feature_names` |
+| `feature_source`, `schema_version` | Source module name and feature archive format version |
+
+`features[t, 0]` and `features[t, 1]` are Red's and Blue's vectors for
+`states[t]`. Features are computed for every snapshot to preserve alignment,
+but they describe the movement evaluator. Placement uses a separate baseline
+evaluator and should not be mixed into movement training. Terminal rows also
+remain available but should be selected deliberately by the trainer.
+
+Context is separate from the eight handcrafted features. Repetition counting
+starts with the board after the eighth placement, uses exact board comparisons,
+includes only prior/current positions with the same side to move, and never
+looks ahead. The full chronological `states` array is preserved because a
+current repetition count is not sufficient history for future search.
+
+For the saved sample, the feature shape is `(29, 2, 8)`. Load it in a notebook
+started from `part_b`:
+
+```python
+from pathlib import Path
+from training.DataExtraction.extract_features import load_features
+
+dataset = load_features(
+    Path("training/DataExtraction/output/baseline-selfplay-features.npz")
+)
+mask = (dataset["phase"] == "PLAY") & ~dataset["is_terminal"]
+red_features = dataset["features"][mask, 0]
+boards = dataset["states"][mask]
+indices = dataset["position_index"][mask]
+print(dataset["feature_names"])
+print(red_features.shape, boards.shape, dataset["winner"])
+```
+
+For a notebook saved in `notebooks/`, set its working directory to `part_b`
+before these imports and relative paths. The same archive works for random
+initialisation or initialisation from a saved baseline profile. The active
+`agent_ab-q1` movement evaluator (`eval0`) uses `phalanx_aggressive`; its separate
+`endgame` profile is also saved, without choosing how a future model uses it.
+These are the agent's raw heuristic weight scales; outcome-target scaling and
+any prediction transform remain training choices. No profile evaluation scores
+are saved as targets.
+
+`extract_features(game)` returns the enriched dictionary in memory.
+`extract_board_features(board, root_color, is_red_turn)` computes one vector
+directly from an agent board (`root_color` is 1 for Red, 0 for Blue).
+`write_features(dataset, path)` saves a new archive and refuses overwrites;
+`load_features(path)` reloads it with `allow_pickle=False`. All entries are plain
+numerical or string arrays, with no Python object arrays.
+
+The extractor checks the input archive's shape, dtype, encoding and basic
+metadata. It trusts the original `extract_game()` replay for legality and the
+correct terminal result; it cannot reconstruct actions from snapshots alone.
+
+## 8. Checks and training boundaries
+
+```bash
+./.venv/bin/python -m unittest training.DataExtraction.test_extract_features -v
+```
+
+Checks replay the saved game, compare restored context with the referee,
+reproduce all baseline profile evaluations for both perspectives, preserve
+zero-weight features, verify turn-dependent values and repetition boundaries,
+and check archive round-tripping without pickle or overwriting existing files.
 
 For a play-phase evaluator, select positions starting at index eight and omit
 the final terminal position from ordinary nonterminal examples. Keep whole
 games together when splitting training, validation and test data.
 
-The winner and ending reason are game metadata, not input features. The winner
+The winner and ending reason are game metadata, not model input features. The winner
 describes the game that was played; it is not a deeper-search value or proof
-of an optimal outcome. Deeper-search targets will be generated separately.
-This one game validates extraction and is not sufficient training data.
+of an optimal outcome. Numeric outcome labels and their perspective belong in
+the trainer. Both perspectives and all positions from one game must stay in the
+same training, validation or test split. This one drawn game validates extraction
+and is not sufficient training data.

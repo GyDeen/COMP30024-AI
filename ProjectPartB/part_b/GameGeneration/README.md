@@ -2,7 +2,7 @@
 
 This folder runs configured matches through the existing referee and records
 what happened. Valid completed games also become compact datasets through the
-existing `DataExtraction` module. It does not train agents or assign outcome
+existing `training.DataExtraction` module. It does not train agents or assign outcome
 scores. Agent strategies, shared mechanics and referee source are unchanged.
 
 ## 1. Preview the games before running

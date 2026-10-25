@@ -19,15 +19,13 @@ import numpy as np
 
 from Agents.common.board import BOARD_N, BLUE_FLAG, HEIGHT_MASK, RED_FLAG, BoardState
 from referee.game.constants import MAX_TURNS, PLACEMENT_TURNS
+from ..baseline import (
+    BASELINE_PROFILE_NAMES, BASELINE_WEIGHTS,
+    FEATURE_NAMES, FEATURE_SOURCE, PERSPECTIVES,
+)
 from .extract_game import load_game, write_game
 
 
-FEATURE_SOURCE = "Agents.agent_ab-q1.heuristic"
-FEATURE_NAMES = (
-    "material", "positioning", "efficiency", "alignment",
-    "threaten_enemy", "safety", "hunting", "control",
-)
-PERSPECTIVES = ("RED", "BLUE")
 SCHEMA_VERSION = 1
 _heuristic = import_module(FEATURE_SOURCE)
 
@@ -125,11 +123,6 @@ def extract_features(game: dict) -> dict:
 
     is_terminal = np.zeros(state_count, dtype=np.bool_)
     is_terminal[-1] = True
-    profile_names = tuple(_heuristic.PROFILES)
-    baseline_weights = np.asarray([
-        [_heuristic.PROFILES[profile][name] for name in FEATURE_NAMES]
-        for profile in profile_names
-    ], dtype=np.float32)
     return {
         "game_id": game["game_id"],
         "winner": game["winner"],
@@ -147,8 +140,8 @@ def extract_features(game: dict) -> dict:
         "is_terminal": is_terminal,
         "feature_source": FEATURE_SOURCE,
         "schema_version": SCHEMA_VERSION,
-        "baseline_profile_names": np.asarray(profile_names),
-        "baseline_weights": baseline_weights,
+        "baseline_profile_names": np.asarray(BASELINE_PROFILE_NAMES),
+        "baseline_weights": BASELINE_WEIGHTS.copy(),
     }
 
 
