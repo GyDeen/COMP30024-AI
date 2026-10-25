@@ -21,6 +21,7 @@ import time
 import uuid
 
 from training.DataExtraction.extract_game import extract_game, write_game
+from training.DataExtraction.extract_features import extract_features, write_features
 from .config import GameSpec, GenerationConfig, load_config, plan_games
 
 
@@ -143,6 +144,7 @@ def run_match(spec: GameSpec, config: GenerationConfig, output_dir: Path) -> dic
     log_path = output_dir / "games" / f"{stem}.log"
     console_path = output_dir / "games" / f"{stem}.console.txt"
     dataset_path = output_dir / "games" / f"{stem}.npz"
+    features_path = output_dir / "features" / f"{stem}.npz"
     environment = dict(os.environ)
     environment.update({
         "CASCADE_RED_AGENT": spec.red_agent,
@@ -158,7 +160,8 @@ def run_match(spec: GameSpec, config: GenerationConfig, output_dir: Path) -> dic
               "reported_winner": None, "ending_reason": None, "turns": None,
               "return_code": None, "error": None,
               "log": str(log_path.relative_to(output_dir)),
-              "console": str(console_path.relative_to(output_dir)), "positions": None}
+              "console": str(console_path.relative_to(output_dir)),
+              "positions": None, "features": None}
     start = time.monotonic()
     try:
         with console_path.open("x", encoding="utf-8") as console:
@@ -180,6 +183,8 @@ def run_match(spec: GameSpec, config: GenerationConfig, output_dir: Path) -> dic
                     try:
                         write_game(game, dataset_path)
                         result["positions"] = str(dataset_path.relative_to(output_dir))
+                        write_features(extract_features(game), features_path)
+                        result["features"] = str(features_path.relative_to(output_dir))
                     except (ValueError, OSError) as error:
                         result.update(status="dataset_error", error=str(error))
             result["return_code"] = process.returncode
