@@ -7,12 +7,10 @@ explicitly if the baseline changes. Copy weights before training modifies them.
 
 import numpy as np
 
+from Agents.common.features.movement import FEATURE_NAMES
 
-FEATURE_SOURCE = "Agents.agent_ab-q1.heuristic"
-FEATURE_NAMES = (
-    "material", "positioning", "efficiency", "alignment",
-    "threaten_enemy", "safety", "hunting", "control",
-)
+
+FEATURE_SOURCE = "Agents.common.features.movement"
 PERSPECTIVES = ("RED", "BLUE")
 BASELINE_PROFILE_NAMES = (
     "phalanx_balanced",

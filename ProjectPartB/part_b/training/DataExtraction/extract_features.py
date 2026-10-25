@@ -12,12 +12,12 @@ retained so the trainer can choose its own target scale and player perspective.
 from __future__ import annotations
 
 import argparse
-from importlib import import_module
 from pathlib import Path
 
 import numpy as np
 
 from Agents.common.board import BOARD_N, BLUE_FLAG, HEIGHT_MASK, RED_FLAG, BoardState
+from Agents.common.features import movement
 from referee.game.constants import MAX_TURNS, PLACEMENT_TURNS
 from ..baseline import (
     BASELINE_PROFILE_NAMES, BASELINE_WEIGHTS,
@@ -27,7 +27,6 @@ from .extract_game import load_game, write_game
 
 
 SCHEMA_VERSION = 1
-_heuristic = import_module(FEATURE_SOURCE)
 
 
 def restore_board(state: np.ndarray, position_index: int) -> BoardState:
@@ -50,20 +49,7 @@ def extract_board_features(
     All features are calculated, including ones with zero baseline weight.
     These are the movement evaluator's features, not the placement evaluator's.
     """
-    if root_color not in (_heuristic.RED, _heuristic.BLUE):
-        raise ValueError("root_color must be 1 (RED) or 0 (BLUE)")
-    friendly, enemy = _heuristic.get_stack_maps(board, root_color)
-    is_my_turn = (root_color == _heuristic.RED) == is_red_turn
-    return np.asarray([
-        _heuristic.calc_material(friendly, enemy),
-        _heuristic.calc_positioning(friendly, enemy),
-        _heuristic.calc_efficiency(friendly, enemy),
-        _heuristic.calc_alignment(friendly),
-        _heuristic.calc_threat(friendly, enemy, is_my_turn),
-        _heuristic.calc_safety(friendly, enemy, is_my_turn),
-        _heuristic.calc_hunting(friendly, enemy),
-        _heuristic.calc_control(friendly, enemy),
-    ], dtype=np.float32)
+    return np.asarray(movement.feature_vector(board, root_color, is_red_turn), dtype=np.float32)
 
 
 def extract_features(game: dict) -> dict:
@@ -110,7 +96,7 @@ def extract_features(game: dict) -> dict:
     repetition_state_count = np.zeros(state_count, dtype=np.int32)
     for index, state in enumerate(states):
         board = restore_board(state, index)
-        for perspective, root_color in enumerate((_heuristic.RED, _heuristic.BLUE)):
+        for perspective, root_color in enumerate((movement.RED, movement.BLUE)):
             features[index, perspective] = extract_board_features(
                 board, root_color, bool(is_red_turn[index]),
             )

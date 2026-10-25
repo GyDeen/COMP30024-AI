@@ -236,9 +236,10 @@ The destination must be new. NumPy is the only data-processing dependency;
 PyTorch and Jupyter are not needed to extract features. Process each complete
 game into its own archive so its game ID and chronological history stay intact.
 
-The extractor imports `Agents.agent_ab-q1.heuristic` and calls its existing
-`get_stack_maps` and `calc_*` functions. Agent code is unchanged and no playing
-agent is constructed. The eight movement features have this fixed order:
+The extractor calls `Agents.common.features.movement.feature_vector`, which
+uses the same `get_stack_maps` and `calc_*` functions imported by `agent_ab-q1`
+and the baseline. Feature extraction imports no playing agent or search module.
+The eight movement features have this fixed order:
 
 ```python
 ("material", "positioning", "efficiency", "alignment",
@@ -322,13 +323,13 @@ correct terminal result; it cannot reconstruct actions from snapshots alone.
 ## 8. Checks and training boundaries
 
 ```bash
-./.venv/bin/python -m unittest training.DataExtraction.test_extract_features -v
+./.venv/bin/python -m unittest Agents.common.features.test_features -v
 ```
 
-Checks replay the saved game, compare restored context with the referee,
-reproduce all baseline profile evaluations for both perspectives, preserve
-zero-weight features, verify turn-dependent values and repetition boundaries,
-and check archive round-tripping without pickle or overwriting existing files.
+Checks reproduce all baseline profile evaluations for both perspectives,
+verify shared feature wiring and distinct scoring variants, confirm the
+extractor imports no playing agents or search modules, and check archive
+round-tripping without pickle or overwriting existing files.
 
 For a play-phase evaluator, select positions starting at index eight and omit
 the final terminal position from ordinary nonterminal examples. Keep whole
