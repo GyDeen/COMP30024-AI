@@ -1,0 +1,19 @@
+# A small teacher-data batch, using the normal referee and extraction pipeline.
+games_per_matchup = 2
+swap_colours = true
+base_seed = 42
+cpu_seconds = 600.0
+memory_mb = 0.0
+wall_seconds = 1800.0
+
+[[matchups]]
+agent_a = "Agents.agent_ab-q1"
+agent_b = "Agents.teacher:Level3Agent"
+
+[[matchups]]
+agent_a = "Agents.agent_ab-q1"
+agent_b = "Agents.teacher:Level4Agent"
+
+[[matchups]]
+agent_a = "Agents.teacher:Level3Agent"
+agent_b = "Agents.teacher:Level4Agent"

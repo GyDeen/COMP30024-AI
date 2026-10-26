@@ -5,6 +5,9 @@ what happened. Valid completed games also become compact datasets through the
 existing `training.DataExtraction` module. It does not train agents or assign outcome
 scores. Agent strategies, shared mechanics and referee source are unchanged.
 
+The local teaching-team agent is also supported without a browser or server.
+See [teacher data collection](../Agents/teacher/README.md) and `GameGeneration/teacher.toml`.
+
 ## 1. Preview the games before running
 
 From `part_b`:
@@ -93,6 +96,8 @@ pilot-001/
         game-000001.console.txt  Referee and agent diagnostics
         game-000001.npz          Board-history dataset, for valid normal games
         ...
+    features/
+        game-000001.npz          Our handcrafted features, boards and context
 ```
 
 The `.npz` archives have exactly the existing extraction format: `game_id`,
@@ -114,7 +119,7 @@ Each `results.jsonl` record stores:
 | `return_code` | Referee process exit code; null if it could not be launched |
 | `wall_seconds` | Elapsed match duration, including startup and shutdown |
 | `error` | Failure description, or null |
-| `log`, `console`, `positions` | Paths relative to this run; positions is null without a valid saved dataset |
+| `log`, `console`, `positions`, `features` | Paths relative to this run; dataset paths are null when not saved |
 
 Status meanings:
 
@@ -132,6 +137,10 @@ The raw log and console files are retained where available. A forfeit win is
 not silently treated as a naturally won board position. A missing result is
 not treated as a draw. Results are flushed and progress is saved after each
 game, so earlier completed games remain available after interruption.
+
+Every normal game passes through `extract_game` and `extract_features`.
+If feature extraction fails, the result is `dataset_error`; a successfully
+saved raw game remains available through `positions`, while `features` is null.
 
 `summary.json` reports the number scheduled, number attempted, status counts,
 and Red/Blue/draw counts for completed games. Colour totals are not yet an
