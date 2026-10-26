@@ -2,3 +2,4 @@
 !.dockerignore
 tests/
 GameGeneration/runs/
+logs/
