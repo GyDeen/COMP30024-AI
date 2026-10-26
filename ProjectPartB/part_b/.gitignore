@@ -1,1 +1,4 @@
 *.pdf
+!.dockerignore
+tests/
+GameGeneration/runs/

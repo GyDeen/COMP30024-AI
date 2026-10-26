@@ -1,0 +1,13 @@
+# Total games per matchup. With colour swapping enabled, this must be even.
+games_per_matchup = 2
+swap_colours = true
+base_seed = 42
+
+# CPU allowance is per agent for the whole game. Wall time covers the match.
+cpu_seconds = 180.0
+memory_mb = 250.0
+wall_seconds = 600.0
+
+[[matchups]]
+agent_a = "Agents.agent_baseline"
+agent_b = "Agents.agent_ab-q1-with-random"

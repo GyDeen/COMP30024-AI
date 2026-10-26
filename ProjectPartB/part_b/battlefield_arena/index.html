@@ -469,10 +469,10 @@
     let playerOptions = [
       { id: "human", label: "Human" },
       { id: "teacher", label: "Teacher" },
-      { id: "agent:agent", label: "agent" },
+      { id: "agent:agent_baseline", label: "agent_baseline" },
     ];
     let players = {
-      [RED]: "agent:agent",
+      [RED]: "agent:agent_baseline",
       [BLUE]: "teacher",
     };
     let humanActionMode = "move_eat";
@@ -831,7 +831,13 @@
     }
 
     async function notifyPython(color, action) {
-      await api("/api/notify", { color: color === RED ? "red" : "blue", action });
+      const data = await api("/api/notify", {
+        color: color === RED ? "red" : "blue", action,
+        teacherLevel: Number(els.level.value),
+      });
+      if (data.recording?.status === "completed") {
+        logLine(`Dataset saved: ${data.recording.game_id}`);
+      }
     }
 
     async function getPythonAction(color) {
@@ -876,7 +882,10 @@
       worker?.terminate();
       initWorker();
       await waitUntil(() => teacherReady);
-      await api("/api/new", { players: { red: players[RED], blue: players[BLUE] } });
+      await api("/api/new", {
+        players: { red: players[RED], blue: players[BLUE] },
+        teacherLevel: Number(els.level.value),
+      });
       if (myRun !== runId) return;
       render();
       logLine(`Game ${gameNumber} started. Red=${playerLabel(players[RED])}, Blue=${playerLabel(players[BLUE])}.`);

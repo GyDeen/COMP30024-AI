@@ -1,2 +1,6 @@
 numpy==2.5.4
 websockets==17.3
+jupyterlab
+ipykernel
+torch
+matplotlib
