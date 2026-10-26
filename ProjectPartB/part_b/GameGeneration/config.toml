@@ -10,4 +10,4 @@ wall_seconds = 600.0
 
 [[matchups]]
 agent_a = "Agents.agent_baseline"
-agent_b = "Agents.agent_ab-q1-with-random"
+agent_b = "Agents.archive.agent_ab-q1-with-random"

@@ -68,7 +68,7 @@ Run from `part_b`, so the `Agents` and `referee` packages are visible:
 The TD trainer also supports module execution:
 
 ```bash
-./.venv/bin/python -m Agents.agent_td.td_training --help
+./.venv/bin/python -m Agents.archive.agent_td.td_training --help
 ```
 
 The packed action representation retains its existing limitations: a direction

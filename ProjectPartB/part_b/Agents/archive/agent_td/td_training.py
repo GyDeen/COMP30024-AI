@@ -3,7 +3,7 @@ TD-Leaf(λ) Training for Cascade
 
 Run this OFFLINE to learn evaluation weights through self-play:
     cd part_b
-    python -m Agents.agent_td.td_training
+    python -m Agents.archive.agent_td.td_training
 
 It plays ~2000 self-play games, updating weights after each game.
 Takes 1-4 hours depending on your machine. Saves weights to
@@ -42,20 +42,21 @@ Using Temporal Differences" — the KnightCap paper.
 """
 
 import sys
+from pathlib import Path
 import os
 import time
 import random
 import numpy as np
 
 # Support both module execution and direct execution from another directory.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from Agents.common.board import BoardState, RED_FLAG, BLUE_FLAG, HEIGHT_MASK
 from Agents.common.action import (
     place, move, eat, cascade, is_valid_coord,
     UP, DOWN, LEFT, RIGHT, MOVE, EAT, CASCADE
 )
-from Agents.agent_td.features import extract_features, evaluate_linear, NUM_FEATURES, DEFAULT_WEIGHTS
+from Agents.archive.agent_td.features import extract_features, evaluate_linear, NUM_FEATURES, DEFAULT_WEIGHTS
 
 OFFSETS = (UP, DOWN, LEFT, RIGHT)
 INF = 999999

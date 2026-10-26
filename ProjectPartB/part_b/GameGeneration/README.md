@@ -32,7 +32,7 @@ wall_seconds = 600.0
 
 [[matchups]]
 agent_a = "Agents.agent_baseline"
-agent_b = "Agents.agent_ab-q1-with-random"
+agent_b = "Agents.archive.agent_ab-q1-with-random"
 ```
 
 | Setting | Meaning |
@@ -52,7 +52,7 @@ for unchanged settings, including the order of matchup entries.
 
 Add more `[[matchups]]` entries for more opponents. A specification may be a
 package exporting `Agent` or a module/class such as
-`Agents.agent_td.program:Agent`. Using the same agent for A and B enables
+`Agents.archive.agent_td.program:Agent`. Using the same agent for A and B enables
 self-play. This version runs games sequentially to avoid CPU contention.
 
 Memory measurement is provided by the referee on Linux. It is unavailable on
