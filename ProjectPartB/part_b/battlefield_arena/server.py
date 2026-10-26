@@ -12,74 +12,23 @@ from urllib.parse import unquote
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from referee.game import (
-    Action,
-    CascadeAction,
-    Coord,
-    Direction,
-    EatAction,
-    MoveAction,
-    PlaceAction,
-    PlayerColor,
-)
+from referee.game import PlayerColor
+from Agents.teacher.actions import action_from_index, action_to_index
+from battlefield_arena.recording import ArenaRun
 
 ARENA_DIR = ROOT / "battlefield_arena"
 BATTLEFIELD_DIR = ROOT / "battlefield_page"
+AGENTS_DIR = ROOT / "Agents"
 HOST = "127.0.0.1"
 PORT = 8787
 
-DIRS = [Direction.Up, Direction.Down, Direction.Left, Direction.Right]
-DIR_TO_INDEX = {
-    Direction.Up: 0,
-    Direction.Down: 1,
-    Direction.Left: 2,
-    Direction.Right: 3,
-}
-
 python_agents: dict[PlayerColor, object] = {}
 player_specs: dict[PlayerColor, str] = {
-    PlayerColor.RED: "agent:agent",
+    PlayerColor.RED: "agent:agent_baseline",
     PlayerColor.BLUE: "teacher",
 }
 agent_lock = Lock()
-
-
-def action_from_index(index: int) -> Action:
-    if index < 0 or index >= 832:
-        raise ValueError(f"action index out of range: {index}")
-
-    if index < 64:
-        return PlaceAction(Coord(index // 8, index % 8))
-
-    if index < 320:
-        offset = index - 64
-        square = offset // 4
-        return MoveAction(Coord(square // 8, square % 8), DIRS[offset % 4])
-
-    if index < 576:
-        offset = index - 320
-        square = offset // 4
-        return EatAction(Coord(square // 8, square % 8), DIRS[offset % 4])
-
-    offset = index - 576
-    square = offset // 4
-    return CascadeAction(Coord(square // 8, square % 8), DIRS[offset % 4])
-
-
-def action_to_index(action: Action) -> int:
-    if isinstance(action, PlaceAction):
-        return action.coord.r * 8 + action.coord.c
-
-    if isinstance(action, MoveAction):
-        return 64 + (action.coord.r * 8 + action.coord.c) * 4 + DIR_TO_INDEX[action.direction]
-
-    if isinstance(action, EatAction):
-        return 320 + (action.coord.r * 8 + action.coord.c) * 4 + DIR_TO_INDEX[action.direction]
-
-    if isinstance(action, CascadeAction):
-        return 576 + (action.coord.r * 8 + action.coord.c) * 4 + DIR_TO_INDEX[action.direction]
-
-    raise ValueError(f"unknown action: {action}")
+recording_run: ArenaRun | None = None
 
 
 def player_color(value: str) -> PlayerColor:
@@ -92,7 +41,7 @@ def color_name(color: PlayerColor) -> str:
 
 def discover_agent_dirs() -> list[str]:
     out = []
-    for path in sorted(ROOT.iterdir()):
+    for path in sorted(AGENTS_DIR.iterdir()):
         if not path.is_dir() or not path.name.startswith("agent"):
             continue
         if (path / "program.py").is_file():
@@ -103,7 +52,7 @@ def discover_agent_dirs() -> list[str]:
 def load_agent(agent_dir: str, color: PlayerColor) -> object:
     if agent_dir not in discover_agent_dirs():
         raise ValueError(f"unknown agent folder: {agent_dir}")
-    module = importlib.import_module(f"{agent_dir}.program")
+    module = importlib.import_module(f"Agents.{agent_dir}.program")
     agent_class = getattr(module, "Agent")
     return agent_class(color)
 
@@ -137,6 +86,13 @@ class ArenaHandler(BaseHTTPRequestHandler):
         if path == "/api/players":
             self.send_json(player_payload())
             return
+        if path == "/api/recording":
+            with agent_lock:
+                active = recording_run.active if recording_run else None
+                self.send_json({"ok": True,
+                    "run_directory": str(recording_run.path) if recording_run else None,
+                    "game": active.metadata if active else None})
+            return
 
         if path in ("", "/"):
             self.serve_file(ARENA_DIR / "index.html")
@@ -149,19 +105,19 @@ class ArenaHandler(BaseHTTPRequestHandler):
         self.serve_file(ARENA_DIR / path.lstrip("/"))
 
     def do_POST(self) -> None:
-        global python_agents, player_specs
+        global python_agents, player_specs, recording_run
 
         try:
             payload = self.read_json()
 
             if self.path == "/api/new":
                 if "players" in payload:
-                    red_spec = normalise_player_spec(payload["players"].get("red", "agent:agent"))
+                    red_spec = normalise_player_spec(payload["players"].get("red", "agent:agent_baseline"))
                     blue_spec = normalise_player_spec(payload["players"].get("blue", "teacher"))
                 else:
                     agent_color = player_color(str(payload.get("agentColor", "red")))
-                    red_spec = "agent:agent" if agent_color == PlayerColor.RED else "teacher"
-                    blue_spec = "agent:agent" if agent_color == PlayerColor.BLUE else "teacher"
+                    red_spec = "agent:agent_baseline" if agent_color == PlayerColor.RED else "teacher"
+                    blue_spec = "agent:agent_baseline" if agent_color == PlayerColor.BLUE else "teacher"
 
                 next_specs = {
                     PlayerColor.RED: red_spec,
@@ -172,11 +128,15 @@ class ArenaHandler(BaseHTTPRequestHandler):
                     if spec.startswith("agent:"):
                         next_agents[color] = load_agent(spec.split(":", 1)[1], color)
                 with agent_lock:
+                    if recording_run is None:
+                        recording_run = ArenaRun(ROOT / "GameGeneration" / "runs")
+                    active = recording_run.start(next_specs, int(payload.get("teacherLevel", 3)))
                     player_specs = next_specs
                     python_agents = next_agents
                 self.send_json({
                     "ok": True,
                     "players": {color_name(color): spec for color, spec in player_specs.items()},
+                    "game_id": active.metadata["game_id"],
                 })
                 return
 
@@ -184,9 +144,13 @@ class ArenaHandler(BaseHTTPRequestHandler):
                 color = player_color(str(payload["color"]))
                 action = action_from_index(int(payload["action"]))
                 with agent_lock:
+                    if recording_run is None or recording_run.active is None:
+                        raise RuntimeError("Start an arena game before sending actions")
+                    recording_run.active.accept(color, action, int(payload.get("teacherLevel", 3)))
                     for current_agent in python_agents.values():
                         current_agent.update(color, action)
-                self.send_json({"ok": True})
+                    record = dict(recording_run.active.metadata)
+                self.send_json({"ok": True, "recording": record})
                 return
 
             if self.path == "/api/agent_action":

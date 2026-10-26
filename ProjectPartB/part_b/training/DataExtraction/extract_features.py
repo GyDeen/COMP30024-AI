@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Literal, TypedDict, cast
 
 import numpy as np
+from numpy.typing import NDArray
 
 from Agents.common.board import BOARD_N, BLUE_FLAG, HEIGHT_MASK, RED_FLAG, BoardState
 from Agents.common.features import movement
@@ -29,7 +31,32 @@ from .extract_game import load_game, write_game
 SCHEMA_VERSION = 1
 
 
-def restore_board(state: np.ndarray, position_index: int) -> BoardState:
+class FeatureGame(TypedDict):
+    """One loaded feature archive, including its complete game history.
+
+    states has shape (N, 64); features has shape (N, 2, 8).
+    Per-position context arrays have shape (N,), including is_terminal.
+    """
+
+    game_id: str
+    winner: Literal["RED", "BLUE", "DRAW"]
+    ending_reason: Literal["elimination", "threefold_repetition", "stalemate", "turn_limit"]
+    states: NDArray[np.uint8]
+    features: NDArray[np.float32]
+    feature_names: NDArray[np.str_]
+    perspectives: NDArray[np.str_]
+    position_index: NDArray[np.int32]
+    side_to_move: NDArray[np.str_]
+    phase: NDArray[np.str_]
+    play_turns: NDArray[np.int32]
+    remaining_play_turns: NDArray[np.int32]
+    repetition_state_count: NDArray[np.int32]
+    is_terminal: NDArray[np.bool_]
+    baseline_profile_names: NDArray[np.str_]
+    baseline_weights: NDArray[np.float32]
+
+
+def restore_board(state: NDArray[np.uint8], position_index: int) -> BoardState:
     """Restore a validated snapshot, including the agent's cached token totals."""
     board = BoardState()
     board.state = bytearray(state.tobytes())
@@ -41,7 +68,7 @@ def restore_board(state: np.ndarray, position_index: int) -> BoardState:
 
 def extract_board_features(
     board: BoardState, root_color: int, is_red_turn: bool,
-) -> np.ndarray:
+) -> NDArray[np.float32]:
     """Return eight float32 features using the existing agent implementations.
 
     root_color uses the agent's convention: 1 for Red, 0 for Blue. is_red_turn
@@ -52,7 +79,7 @@ def extract_board_features(
     return np.asarray(movement.feature_vector(board, root_color, is_red_turn), dtype=np.float32)
 
 
-def extract_features(game: dict) -> dict:
+def extract_features(game: dict) -> FeatureGame:
     """Prepare one complete game's features, boards, context and raw outcome.
 
     Accepts load_game()'s dictionary. features[t, 0] describes Red's perspective
@@ -124,27 +151,23 @@ def extract_features(game: dict) -> dict:
         "remaining_play_turns": MAX_TURNS - play_turns,
         "repetition_state_count": repetition_state_count,
         "is_terminal": is_terminal,
-        "feature_source": FEATURE_SOURCE,
-        "schema_version": SCHEMA_VERSION,
         "baseline_profile_names": np.asarray(BASELINE_PROFILE_NAMES),
         "baseline_weights": BASELINE_WEIGHTS.copy(),
     }
 
 
-def write_features(dataset: dict, output_path: Path) -> None:
+def write_features(dataset: FeatureGame, output_path: Path) -> None:
     """Save all fields as plain arrays in a new .npz file; refuse overwrites."""
-    write_game(dataset, output_path)
+    write_game(dict(dataset), output_path)
 
 
-def load_features(path: Path) -> dict:
+def load_features(path: Path) -> FeatureGame:
     """Load a feature archive without pickle, restoring scalar metadata types."""
     with np.load(path, allow_pickle=False) as saved:
         dataset = {name: saved[name] for name in saved.files}
-    for name in ("game_id", "winner", "ending_reason", "feature_source", "schema_version"):
+    for name in ("game_id", "winner", "ending_reason"):
         dataset[name] = dataset[name].item()
-    if dataset["schema_version"] != SCHEMA_VERSION:
-        raise ValueError("Unsupported feature archive schema version")
-    return dataset
+    return cast(FeatureGame, dataset)
 
 
 def main() -> None:
