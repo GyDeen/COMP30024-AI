@@ -1,4 +1,5 @@
 *.pdf
+*.toml
 !.dockerignore
 tests/
 GameGeneration/runs/
