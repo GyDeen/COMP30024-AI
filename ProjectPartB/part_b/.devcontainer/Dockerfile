@@ -1,9 +1,14 @@
+FROM node:24-bookworm-slim AS node-runtime
+
 FROM python:3.12-slim-bookworm
 
-# Git for development and runtime libraries required by VS Code Server.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates git libstdc++6 tar \
+    && apt-get install -y --no-install-recommends bash ca-certificates git libatomic1 libstdc++6 tar \
     && rm -rf /var/lib/apt/lists/*
+
+# The teacher adapter needs the Node.js runtime
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+RUN node --version
 
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
