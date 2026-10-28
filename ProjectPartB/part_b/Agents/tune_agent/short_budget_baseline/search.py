@@ -328,7 +328,7 @@ def get_best_move(board: BoardState, root_color: int, is_red: bool, time_remaini
     if not time_remaining:
         time_limit_for_turn = 8
     else:
-        time_limit_for_turn = min(time_remaining / 60.0, 1.5)
+        time_limit_for_turn = min(time_remaining / 300.0, 0.2)
         is_placing = board.turn_count < 8
 
     if time_remaining < 5.0:
