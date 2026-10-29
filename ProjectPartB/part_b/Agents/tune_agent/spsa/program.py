@@ -2,7 +2,6 @@
 
 import json
 import math
-import os
 import time
 
 from Agents.common.action import translate_to_Action
@@ -20,7 +19,7 @@ INITIAL_WEIGHTS: dict[str, float] = {
 
 
 class Agent(OriginalAgent):
-    """Read CASCADE_TUNING_RED/BLUE JSON, or use the initial short-budget setup.
+    """Play with supplied weights and search limits, or the initial setup.
 
     Settings contain weights, move_seconds, remaining_divisor and max_depth.
     The recursive alpha-beta and quiescence implementations are reused intact.
@@ -30,17 +29,15 @@ class Agent(OriginalAgent):
 
     fixed_weights = False
 
-    def __init__(self, color: PlayerColor, **referee: object) -> None:
+    def __init__(self, color: PlayerColor, *, weights: dict[str, float] | None = None,
+                 move_seconds: float = 0.2, remaining_divisor: float = 300.0,
+                 max_depth: int = 20, **referee: object) -> None:
         super().__init__(color, **referee)
-        settings = json.loads(os.environ.get(f"CASCADE_TUNING_{color.name}", "{}"))
-        unknown = set(settings) - {"weights", "move_seconds", "remaining_divisor", "max_depth"}
-        if unknown:
-            raise ValueError(f"Unknown tuning settings: {sorted(unknown)}")
-        weights = INITIAL_WEIGHTS if self.fixed_weights else settings.get("weights", INITIAL_WEIGHTS)
+        weights = INITIAL_WEIGHTS if self.fixed_weights or weights is None else weights
         self.evaluate = make_evaluator(weights)
-        self.move_seconds = float(settings.get("move_seconds", 0.2))
-        self.remaining_divisor = float(settings.get("remaining_divisor", 300.0))
-        self.max_depth = settings.get("max_depth", 20)
+        self.move_seconds = float(move_seconds)
+        self.remaining_divisor = float(remaining_divisor)
+        self.max_depth = max_depth
         if any(not math.isfinite(x) or x <= 0 for x in (self.move_seconds, self.remaining_divisor)):
             raise ValueError("Search time settings must be finite and positive")
         if type(self.max_depth) is not int or self.max_depth < 1:
