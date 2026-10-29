@@ -145,18 +145,18 @@ def run_match(spec: GameSpec, config: GenerationConfig, output_dir: Path) -> dic
     console_path = output_dir / "games" / f"{stem}.console.txt"
     dataset_path = output_dir / "games" / f"{stem}.npz"
     features_path = output_dir / "features" / f"{stem}.npz"
+    red_agent, blue_agent = config.agents_for(spec)
     environment = dict(os.environ)
     environment.update({
-        "CASCADE_RED_AGENT": spec.red_agent,
-        "CASCADE_BLUE_AGENT": spec.blue_agent,
-        "CASCADE_RED_SEED": str(spec.red_seed),
-        "CASCADE_BLUE_SEED": str(spec.blue_seed),
+        "CASCADE_RED_AGENT": json.dumps({**asdict(red_agent), "seed": spec.red_seed}, allow_nan=False),
+        "CASCADE_BLUE_AGENT": json.dumps({**asdict(blue_agent), "seed": spec.blue_seed}, allow_nan=False),
     })
     command = [sys.executable, "-m", "referee",
                "GameGeneration.seeded_agent", "GameGeneration.seeded_agent",
                "--time", str(config.cpu_seconds), "--space", str(config.memory_mb),
                "--verbosity", "1", "--colourless", "--logfile", str(log_path)]
-    result = {**asdict(spec), "status": "launch_error", "winner": None,
+    result = {**asdict(spec), "red_agent": asdict(red_agent), "blue_agent": asdict(blue_agent),
+              "status": "launch_error", "winner": None,
               "reported_winner": None, "ending_reason": None, "turns": None,
               "return_code": None, "error": None,
               "log": str(log_path.relative_to(output_dir)),
@@ -240,7 +240,8 @@ def generate(config_path: Path, output_dir: Path) -> dict:
     with (output_dir / "results.jsonl").open("x", encoding="utf-8") as output:
         try:
             for game in games:
-                print(f"[{game.number}/{len(games)}] Red={game.red_agent}; Blue={game.blue_agent}", flush=True)
+                red_agent, blue_agent = config.agents_for(game)
+                print(f"[{game.number}/{len(games)}] Red={red_agent.agent}; Blue={blue_agent.agent}", flush=True)
                 result = run_match(game, config, output_dir)
                 output.write(json.dumps(result, allow_nan=False) + "\n")
                 output.flush()
@@ -273,7 +274,9 @@ def main() -> None:
     try:
         config = load_config(args.config)
         if args.dry_run:
-            print(json.dumps([asdict(game) for game in plan_games(config, "preview")], indent=2))
+            print(json.dumps({"configuration": asdict(config), "games": [
+                asdict(game) for game in plan_games(config, "preview")
+            ]}, indent=2))
             return
         output = args.output or Path(__file__).with_name("runs") / (
             datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8])

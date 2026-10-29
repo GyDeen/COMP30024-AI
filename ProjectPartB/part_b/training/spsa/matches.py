@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from Agents.tune_agent.spsa.program import INITIAL_WEIGHTS
-from GameGeneration.config import GameSpec, GenerationConfig
+from GameGeneration.config import AgentConfig, GameSpec, GenerationConfig, Matchup
 from GameGeneration.generate import run_match, save_json
 
 from .config import CANDIDATE, SPSAConfig
@@ -44,19 +44,16 @@ def settings(weights: dict[str, float], config: SPSAConfig) -> dict[str, Any]:
 
 
 def schedule(config: SPSAConfig, iteration: int, validation: bool = False) -> list[dict[str, Any]]:
-    """Identical seeds/openings for both probes, with adjacent colour swaps."""
-    pool = config.validation_openings if validation else config.training_openings
+    """Identical opponents and seeds for both probes, with adjacent colour swaps."""
     rng = random.Random(f"{config.seed}:{iteration}:{int(validation)}")
     rows: list[dict[str, Any]] = []
     for opponent_index, opponent in enumerate(config.opponents):
-        for pair in range(config.pairs_per_opponent):
-            opening_index = (iteration * config.pairs_per_opponent + pair) % len(pool)
+        for _ in range(config.pairs_per_opponent):
             candidate_seed, opponent_seed = rng.getrandbits(32), rng.getrandbits(32)
             for colour in ("RED", "BLUE"):
                 rows.append({"number": len(rows) + 1, "opponent": opponent,
                              "opponent_index": opponent_index, "candidate_colour": colour,
-                             "candidate_seed": candidate_seed, "opponent_seed": opponent_seed,
-                             "opening_index": opening_index, "opening": pool[opening_index]})
+                             "candidate_seed": candidate_seed, "opponent_seed": opponent_seed})
     return rows
 
 
@@ -88,7 +85,11 @@ def play_batch(weights: dict[str, float], config: SPSAConfig, output: Path,
         raise ValueError(f"Saved match plan differs: {plan_path}")
     save_json(plan_path, plan)
     runner_config = GenerationConfig(2, True, config.seed, config.cpu_seconds,
-                                     config.memory_mb, config.wall_seconds, ())
+                                     config.memory_mb, config.wall_seconds, tuple(
+        Matchup(AgentConfig(CANDIDATE, settings(weights, config)),
+                AgentConfig(opponent, settings(INITIAL_WEIGHTS, config)))
+        for opponent in config.opponents
+    ))
     results: list[dict[str, Any]] = []
     for row in rows:
         game_dir = output / f"game-{row['number']:04d}"
@@ -106,22 +107,15 @@ def play_batch(weights: dict[str, float], config: SPSAConfig, output: Path,
         colour = row["candidate_colour"]
         candidate_red = colour == "RED"
         spec = GameSpec(
-            f"{batch_id}-game-{row['number']:04d}-attempt-{attempt}", row["number"],
-            row["opponent_index"], CANDIDATE if candidate_red else row["opponent"],
-            row["opponent"] if candidate_red else CANDIDATE,
-            row["candidate_seed"] if candidate_red else row["opponent_seed"],
-            row["opponent_seed"] if candidate_red else row["candidate_seed"],
+            game_id=f"{batch_id}-game-{row['number']:04d}-attempt-{attempt}",
+            number=row["number"], matchup_index=row["opponent_index"],
+            red_seed=row["candidate_seed"] if candidate_red else row["opponent_seed"],
+            blue_seed=row["opponent_seed"] if candidate_red else row["candidate_seed"],
+            reversed_colours=not candidate_red,
         )
-        candidate_settings = json.dumps(settings(weights, config), allow_nan=False)
-        control_settings = json.dumps(settings(INITIAL_WEIGHTS, config), allow_nan=False)
-        environment = {
-            "CASCADE_TUNING_RED": candidate_settings if candidate_red else control_settings,
-            "CASCADE_TUNING_BLUE": control_settings if candidate_red else candidate_settings,
-            "CASCADE_OPENING_ACTIONS": json.dumps(row["opening"]),
-        }
         print(f"{output.name}: game {row['number']}/{len(rows)}, candidate {colour}", flush=True)
-        result = run_match(spec, runner_config, attempt_dir, extra_env=environment)
-        result.update(candidate_colour=colour, opening_index=row["opening_index"],
+        result = run_match(spec, runner_config, attempt_dir)
+        result.update(candidate_colour=colour,
                       attempt_directory=str(attempt_dir.relative_to(output)))
         if result["status"] == "completed":
             result.update(candidate_metrics(attempt_dir / result["console"], colour))

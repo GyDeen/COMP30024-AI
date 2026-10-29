@@ -5,9 +5,8 @@ iteration using the project's existing game runner and standard PyTorch tools.
 
 This is **game-based parameter tuning**: its weight updates come from newly
 played matches. It does not fit the saved feature dataset. The archive loaded
-in the notebook is only used to illustrate a forward pass. Saved datasets
-already contain the opening board positions; a dataset-based training workflow
-does not need a separate opening allocation.
+in the notebook is only used to illustrate a forward pass. Agents choose all
+their moves, including the initial placements, during each match.
 
 | Component | Implementation |
 |---|---|
@@ -72,13 +71,9 @@ python -m training.spsa train --output logs/spsa-torch-001 --resume --iterations
 `--iterations` is the total desired count, including completed updates. The
 configuration defaults to [config.toml](config.toml). Material is held fixed to
 anchor the score scale, alignment stays disabled, and the other six weights are
-tuned. Both probes use matched openings, opponent assignments and seeds, with
+tuned. Both probes use matched opponent assignments and seeds, with
 adjacent colour swaps. The control uses the original weights and the same search
 settings. Additional normal project agents can be configured as opponents.
-The opening lists control these new matches. They are optional experiment
-settings, not missing information from the stored dataset. Using `[[]]` runs
-games with each agent's normal placement policy. Opening legality is checked
-by the referee during actual play, rather than replayed while loading config.
 
 `move_seconds` caps wall time per search. `remaining_divisor` controls the
 remaining-clock allocation and `max_depth` caps nominal iterative deepening.
@@ -102,8 +97,8 @@ tunable coordinates are projected onto the configured bounds. Frozen coordinates
 have zero gradients and remain fixed. Equal scores give a zero gradient; an
 inward adjustment of the probe center may still occur at a boundary.
 
-The small opening pool is a starting point. Repeating deterministic games or
-changing only their seeds does not provide independent strategic examples.
+Repeating deterministic games or changing only their seeds does not provide
+independent strategic examples.
 Time-limited search can also change completed depths between repeated games.
 
 ## Checkpoints and validation
@@ -117,7 +112,7 @@ training before an update is committed. Use one process per output directory.
 The new `.pt` checkpoints are for this PyTorch trainer. Start a new run rather
 than resuming an earlier NumPy/JSON checkpoint.
 
-Validate frozen weights on the separate validation openings:
+Evaluate frozen weights using a separate seed schedule:
 
 ```bash
 python -m training.spsa evaluate \

@@ -103,7 +103,7 @@ def train(config: SPSAConfig, output: Path, *, resume: bool = False,
 
 
 def evaluate(config: SPSAConfig, weights: dict[str, float], output: Path) -> dict[str, Any]:
-    """Evaluate fixed named weights on validation openings, without updating."""
+    """Evaluate fixed named weights on a separate seed schedule, without updating."""
     output.mkdir(parents=True, exist_ok=False)
     save_json(output / "config.json", asdict(config))
     save_json(output / "weights.json", {"weights": weights})

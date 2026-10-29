@@ -1,4 +1,4 @@
-"""Experiment configuration and recorded opening prefixes."""
+"""Typed settings for weight tuning and match evaluation."""
 
 import math
 import tomllib
@@ -21,8 +21,6 @@ class SPSAConfig:
     pairs_per_opponent: int = 2
     seed: int = 42
     opponents: list[str] = field(default_factory=lambda: [CONTROL])
-    training_openings: list[list[str]] = field(default_factory=lambda: [[]])
-    validation_openings: list[list[str]] = field(default_factory=lambda: [[]])
     weights: dict[str, float] = field(default_factory=lambda: dict(INITIAL_WEIGHTS))
     tune_features: list[str] = field(default_factory=lambda: [
         name for name in FEATURE_NAMES if name not in {"material", "alignment"}

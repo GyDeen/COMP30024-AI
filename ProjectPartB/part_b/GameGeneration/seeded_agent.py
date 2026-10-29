@@ -1,6 +1,7 @@
 """Referee-compatible adapter for an assigned agent and random seed."""
 
 import importlib
+import json
 import os
 import random
 
@@ -12,14 +13,15 @@ from referee.game import PlayerColor
 class Agent:
     
     def __init__(self, color: PlayerColor, **referee):
-        spec = os.environ[f"CASCADE_{color.name}_AGENT"]
-        seed = int(os.environ[f"CASCADE_{color.name}_SEED"])
+        config = json.loads(os.environ[f"CASCADE_{color.name}_AGENT"])
+        spec = config["agent"]
+        seed = config["seed"]
         random.seed(seed)
         np.random.seed(seed)
         module_name, separator, class_name = spec.partition(":")
         module = importlib.import_module(module_name)
         agent_class = getattr(module, class_name if separator else "Agent")
-        self._agent = agent_class(color, **referee)
+        self._agent = agent_class(color, **config["settings"], **referee)
         # Some current agents reseed from the clock in their constructors.
         random.seed(seed)
         np.random.seed(seed)

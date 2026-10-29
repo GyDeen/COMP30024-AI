@@ -43,7 +43,12 @@ agent_b = "Agents.archive.agent_ab-q1-with-random"
 | `cpu_seconds` | Referee CPU allowance per agent over the whole game |
 | `memory_mb` | Referee memory allowance per agent; zero disables it |
 | `wall_seconds` | Maximum elapsed time for the entire match, including startup |
-| `matchups` | Agent pairings, each with an `agent_a` and `agent_b` |
+| `matchups` | Agent pairings, each with configured participants `agent_a` and `agent_b` |
+
+`GameSpec` stores the matchup index, colour assignment, seeds and game identity.
+It does not copy agent definitions. `config.agents_for(spec)` resolves the
+configured participants in Red, Blue order. Per-game results retain a snapshot
+of the resolved agents. Agents choose all moves, including placement moves.
 
 With two games and colour swapping enabled, the first game has A as Red and B
 as Blue; the second reverses those colours. Each participant keeps its seed
@@ -108,8 +113,8 @@ Each `results.jsonl` record stores:
 
 | Field | Meaning |
 |---|---|
-| `game_id`, `number`, `matchup_index` | Game identity, one-based game number, zero-based matchup index |
-| `red_agent`, `blue_agent` | Actual playing agents assigned to the colours |
+| `game_id`, `number`, `matchup_index`, `reversed_colours` | Game identity, one-based game number, zero-based matchup index and whether B plays Red |
+| `red_agent`, `blue_agent` | Resolved agent configurations, each containing its import specification and constructor settings |
 | `red_seed`, `blue_seed` | Random seed assigned to each agent |
 | `status` | Completed, forfeited or failed execution category |
 | `winner` | Verified natural winner or referee-declared forfeit winner; otherwise null |
@@ -149,8 +154,10 @@ strength against other agents.
 
 ## 5. Seeds and repeatability
 
-The referee runs each agent in a separate process. `seeded_agent.py` supplies
-the configured real agent and seed through that existing interface. The
+The referee runs each agent in a separate process. `CASCADE_RED_AGENT` and
+`CASCADE_BLUE_AGENT` each carry one JSON payload containing the configured
+agent, its constructor settings and its assigned seed. `seeded_agent.py`
+constructs the selected agent from that payload. The
 adapter seeds Python's global random generator and NumPy's legacy global
 generator before construction and resets them afterwards. That handles the
 current random agent's constructor reseeding from the clock.
